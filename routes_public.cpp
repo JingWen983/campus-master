@@ -269,11 +269,9 @@ void register_public_routes(httplib::Server& svr) {
 
         json records = json::array();
 
-        char sql[512];
-        snprintf(sql, sizeof(sql),
-            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = '%s' ORDER BY created_at DESC",
-            db.escapeString(user_id).c_str());
-        json result = db.query(sql);
+        json result = db.query_bind(
+            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = ? ORDER BY created_at DESC",
+            {SqliteDb::Bind(user_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);
@@ -311,6 +309,8 @@ void register_public_routes(httplib::Server& svr) {
     // 7. 兑换商品 API
     svr.Post("/api/mall/redeem", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
         json response;
 
         std::string session_id = get_cookie_value(req, "sid");
@@ -338,7 +338,9 @@ void register_public_routes(httplib::Server& svr) {
             }
 
             // 后端验证：从数据库读取商品真实价格和库存，忽略客户端传入的 cost
-            json item_result = db.query("SELECT cost, stock FROM mall_items WHERE id = " + to_string(item_id) + " AND status = 1");
+            json item_result = db.query_bind(
+                "SELECT cost, stock FROM mall_items WHERE id = ? AND status = 1",
+                {SqliteDb::Bind((long long)item_id)});
             if (item_result.empty()) {
                 response = {{"code", 404}, {"msg", "商品不存在或已下架"}};
                 res.set_content(response.dump(), "application/json");
@@ -363,9 +365,9 @@ void register_public_routes(httplib::Server& svr) {
             if (stock == 0) {
                 stock_ok = false;
             } else if (stock > 0) {
-                char stock_sql[256];
-                snprintf(stock_sql, sizeof(stock_sql), "UPDATE mall_items SET stock = stock - 1 WHERE id = %d AND stock > 0", item_id);
-                db.execute(stock_sql);
+                db.execute_bind(
+                    "UPDATE mall_items SET stock = stock - 1 WHERE id = ? AND stock > 0",
+                    {SqliteDb::Bind((long long)item_id)});
             }
 
             if (!stock_ok) {
@@ -376,11 +378,9 @@ void register_public_routes(httplib::Server& svr) {
 
             user->points -= cost;
             update_user_points_in_db(user->id, user->points);
-            char redeem_sql[512];
-            snprintf(redeem_sql, sizeof(redeem_sql),
-                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES ('%s', %d, %d, '%s')",
-                db.escapeString(user_id).c_str(), item_id, cost, get_current_time().c_str());
-            db.execute(redeem_sql);
+            db.execute_bind(
+                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
+                {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost), SqliteDb::Bind(get_current_time())});
 
             response = {
                 {"code", 200},

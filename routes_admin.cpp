@@ -149,6 +149,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -166,16 +168,13 @@ void register_admin_routes(httplib::Server& svr) {
                 return;
             }
 
-            char sql[1024];
-            snprintf(sql, sizeof(sql),
-                "INSERT INTO mall_items (name, description, cost, stock, image_url, status) VALUES ('%s', '%s', %d, %d, '%s', %d)",
-                db.escapeString(name).c_str(),
-                db.escapeString(description).c_str(),
-                cost, stock,
-                db.escapeString(image_url).c_str(),
-                status);
+            bool ok = db.execute_bind(
+                "INSERT INTO mall_items (name, description, cost, stock, image_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+                {SqliteDb::Bind(name), SqliteDb::Bind(description),
+                 SqliteDb::Bind((long long)cost), SqliteDb::Bind((long long)stock),
+                 SqliteDb::Bind(image_url), SqliteDb::Bind((long long)status)});
 
-            if (db.execute(sql)) {
+            if (ok) {
                 response = {{"code", 200}, {"msg", "商品添加成功"}};
             } else {
                 response = {{"code", 500}, {"msg", "商品添加失败"}};
@@ -195,6 +194,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -207,16 +208,14 @@ void register_admin_routes(httplib::Server& svr) {
             string image_url = req_json.value("image_url", "");
             int status = req_json.value("status", 1);
 
-            char sql[1024];
-            snprintf(sql, sizeof(sql),
-                "UPDATE mall_items SET name = '%s', description = '%s', cost = %d, stock = %d, image_url = '%s', status = %d WHERE id = %d",
-                db.escapeString(name).c_str(),
-                db.escapeString(description).c_str(),
-                cost, stock,
-                db.escapeString(image_url).c_str(),
-                status, item_id);
+            bool ok = db.execute_bind(
+                "UPDATE mall_items SET name = ?, description = ?, cost = ?, stock = ?, image_url = ?, status = ? WHERE id = ?",
+                {SqliteDb::Bind(name), SqliteDb::Bind(description),
+                 SqliteDb::Bind((long long)cost), SqliteDb::Bind((long long)stock),
+                 SqliteDb::Bind(image_url), SqliteDb::Bind((long long)status),
+                 SqliteDb::Bind((long long)item_id)});
 
-            if (db.execute(sql)) {
+            if (ok) {
                 response = {{"code", 200}, {"msg", "商品更新成功"}};
             } else {
                 response = {{"code", 404}, {"msg", "商品不存在"}};
@@ -236,15 +235,18 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
             int item_id = stoi(req.matches[1]);
 
-            char sql[256];
-            snprintf(sql, sizeof(sql), "DELETE FROM mall_items WHERE id = %d", item_id);
+            bool ok = db.execute_bind(
+                "DELETE FROM mall_items WHERE id = ?",
+                {SqliteDb::Bind((long long)item_id)});
 
-            if (db.execute(sql)) {
+            if (ok) {
                 response = {{"code", 200}, {"msg", "商品删除成功"}};
             } else {
                 response = {{"code", 404}, {"msg", "商品不存在"}};
@@ -302,6 +304,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -323,6 +327,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
 
@@ -429,11 +435,9 @@ void register_admin_routes(httplib::Server& svr) {
             // 教师角色：附带 bound_class_ids
             if (user.role_id == 2) {
                 json bound_class_ids = json::array();
-                char tc_sql[256];
-                snprintf(tc_sql, sizeof(tc_sql),
-                    "SELECT class_id FROM teacher_classes WHERE teacher_id = '%s'",
-                    db.escapeString(user.id).c_str());
-                json tc_result = db.query(tc_sql);
+                json tc_result = db.query_bind(
+                    "SELECT class_id FROM teacher_classes WHERE teacher_id = ?",
+                    {SqliteDb::Bind(user.id)});
                 for (const auto& tc_row : tc_result) {
                     bound_class_ids.push_back(tc_row.value("class_id", 0));
                 }
@@ -443,11 +447,9 @@ void register_admin_routes(httplib::Server& svr) {
             // 家长角色：附带 bound_student_ids
             if (user.role_id == 4) {
                 json bound_student_ids = json::array();
-                char ps_sql[256];
-                snprintf(ps_sql, sizeof(ps_sql),
-                    "SELECT student_id FROM parent_students WHERE parent_id = '%s'",
-                    db.escapeString(user.id).c_str());
-                json ps_result = db.query(ps_sql);
+                json ps_result = db.query_bind(
+                    "SELECT student_id FROM parent_students WHERE parent_id = ?",
+                    {SqliteDb::Bind(user.id)});
                 for (const auto& ps_row : ps_result) {
                     std::string sid = ps_row.contains("student_id") && !ps_row["student_id"].is_null()
                         ? ps_row["student_id"].get<std::string>() : "";
@@ -471,6 +473,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -524,11 +528,9 @@ void register_admin_routes(httplib::Server& svr) {
                             std::string sid;
                             try { sid = sid_val.get<std::string>(); } catch (...) { continue; }
                             if (sid.empty()) continue;
-                            char ins_sql[512];
-                            snprintf(ins_sql, sizeof(ins_sql),
-                                "INSERT OR IGNORE INTO parent_students (parent_id, student_id) VALUES ('%s', '%s')",
-                                db.escapeString(new_id).c_str(), db.escapeString(sid).c_str());
-                            db.execute(ins_sql);
+                            db.execute_bind(
+                                "INSERT OR IGNORE INTO parent_students (parent_id, student_id) VALUES (?, ?)",
+                                {SqliteDb::Bind(new_id), SqliteDb::Bind(sid)});
                         }
                     }
                     // 教师角色：插入 teacher_classes 绑定
@@ -537,11 +539,9 @@ void register_admin_routes(httplib::Server& svr) {
                         for (const auto& cls_id : bound_class_ids) {
                             int cid = 0;
                             try { cid = cls_id.get<int>(); } catch (...) { continue; }
-                            char ins_sql[256];
-                            snprintf(ins_sql, sizeof(ins_sql),
-                                "INSERT OR IGNORE INTO teacher_classes (teacher_id, class_id) VALUES ('%s', %d)",
-                                db.escapeString(new_id).c_str(), cid);
-                            db.execute(ins_sql);
+                            db.execute_bind(
+                                "INSERT OR IGNORE INTO teacher_classes (teacher_id, class_id) VALUES (?, ?)",
+                                {SqliteDb::Bind(new_id), SqliteDb::Bind((long long)cid)});
                         }
                     }
 
@@ -563,6 +563,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -589,11 +591,9 @@ void register_admin_routes(httplib::Server& svr) {
                 }
 
                 // 2. 按 className 查 classes 表获取 grade_code、class_code
-                char cls_sql[512];
-                snprintf(cls_sql, sizeof(cls_sql),
-                    "SELECT grade_code, class_code FROM classes WHERE name = '%s'",
-                    db.escapeString(className).c_str());
-                json cls_result = db.query(cls_sql);
+                json cls_result = db.query_bind(
+                    "SELECT grade_code, class_code FROM classes WHERE name = ?",
+                    {SqliteDb::Bind(className)});
                 if (cls_result.empty()) {
                     string reason = "班级不存在：" + className;
                     failed_records.push_back({{"row", i + 1}, {"name", name}, {"reason", reason}});
@@ -673,6 +673,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -722,12 +724,10 @@ void register_admin_routes(httplib::Server& svr) {
             user_it->role_id = role_id;
             user_it->className = className;
 
-            char sql[2048];
-            snprintf(sql, sizeof(sql),
-                "UPDATE users SET username = '%s', name = '%s', role_id = %d, className = '%s', updated_at = CURRENT_TIMESTAMP WHERE id = '%s'",
-                db.escapeString(username).c_str(), db.escapeString(name).c_str(), role_id,
-                db.escapeString(className).c_str(), db.escapeString(user_id).c_str());
-            db.execute(sql);
+            db.execute_bind(
+                "UPDATE users SET username = ?, name = ?, role_id = ?, className = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                {SqliteDb::Bind(username), SqliteDb::Bind(name), SqliteDb::Bind((long long)role_id),
+                 SqliteDb::Bind(className), SqliteDb::Bind(user_id)});
 
             update_user_index(*user_it);
             if (old_username != username) {
@@ -737,39 +737,31 @@ void register_admin_routes(httplib::Server& svr) {
             // 教师角色：同步 teacher_classes 绑定
             if (role_id == 2) {
                 json bound_class_ids = req_json.value("bound_class_ids", json::array());
-                char del_sql[256];
-                snprintf(del_sql, sizeof(del_sql),
-                    "DELETE FROM teacher_classes WHERE teacher_id = '%s'",
-                    db.escapeString(user_id).c_str());
-                db.execute(del_sql);
+                db.execute_bind(
+                    "DELETE FROM teacher_classes WHERE teacher_id = ?",
+                    {SqliteDb::Bind(user_id)});
                 for (const auto& cls_id : bound_class_ids) {
                     int cid = 0;
                     try { cid = cls_id.get<int>(); } catch (...) { continue; }
-                    char ins_sql[256];
-                    snprintf(ins_sql, sizeof(ins_sql),
-                        "INSERT OR IGNORE INTO teacher_classes (teacher_id, class_id) VALUES ('%s', %d)",
-                        db.escapeString(user_id).c_str(), cid);
-                    db.execute(ins_sql);
+                    db.execute_bind(
+                        "INSERT OR IGNORE INTO teacher_classes (teacher_id, class_id) VALUES (?, ?)",
+                        {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)cid)});
                 }
             }
 
             // 家长角色：同步 parent_students 绑定
             if (role_id == 4) {
                 json bound_student_ids = req_json.value("bound_student_ids", json::array());
-                char del_sql[256];
-                snprintf(del_sql, sizeof(del_sql),
-                    "DELETE FROM parent_students WHERE parent_id = '%s'",
-                    db.escapeString(user_id).c_str());
-                db.execute(del_sql);
+                db.execute_bind(
+                    "DELETE FROM parent_students WHERE parent_id = ?",
+                    {SqliteDb::Bind(user_id)});
                 for (const auto& sid_val : bound_student_ids) {
                     std::string sid;
                     try { sid = sid_val.get<std::string>(); } catch (...) { continue; }
                     if (sid.empty()) continue;
-                    char ins_sql[512];
-                    snprintf(ins_sql, sizeof(ins_sql),
-                        "INSERT OR IGNORE INTO parent_students (parent_id, student_id) VALUES ('%s', '%s')",
-                        db.escapeString(user_id).c_str(), db.escapeString(sid).c_str());
-                    db.execute(ins_sql);
+                    db.execute_bind(
+                        "INSERT OR IGNORE INTO parent_students (parent_id, student_id) VALUES (?, ?)",
+                        {SqliteDb::Bind(user_id), SqliteDb::Bind(sid)});
                 }
             }
 
@@ -800,6 +792,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -820,17 +814,13 @@ void register_admin_routes(httplib::Server& svr) {
                 string deleted_username = user_it->username;
 
                 // 删除关联的 teacher_classes 和 parent_students 记录
-                char del_tc_sql[256];
-                snprintf(del_tc_sql, sizeof(del_tc_sql),
-                    "DELETE FROM teacher_classes WHERE teacher_id = '%s'",
-                    db.escapeString(deleted_id).c_str());
-                db.execute(del_tc_sql);
+                db.execute_bind(
+                    "DELETE FROM teacher_classes WHERE teacher_id = ?",
+                    {SqliteDb::Bind(deleted_id)});
 
-                char del_ps_sql[256];
-                snprintf(del_ps_sql, sizeof(del_ps_sql),
-                    "DELETE FROM parent_students WHERE parent_id = '%s'",
-                    db.escapeString(deleted_id).c_str());
-                db.execute(del_ps_sql);
+                db.execute_bind(
+                    "DELETE FROM parent_students WHERE parent_id = ?",
+                    {SqliteDb::Bind(deleted_id)});
 
                 delete_user_from_db(deleted_id);
                 users.erase(user_it);
@@ -852,6 +842,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -941,12 +933,11 @@ void register_admin_routes(httplib::Server& svr) {
             };
 
             // 对每个角色查询关联权限
-            char perm_sql[256];
-            snprintf(perm_sql, sizeof(perm_sql),
+            json perms_result = db.query_bind(
                 "SELECT p.id, p.name, p.code FROM permissions p "
                 "INNER JOIN role_permissions rp ON p.id = rp.permission_id "
-                "WHERE rp.role_id = %d", role.id);
-            json perms_result = db.query(perm_sql);
+                "WHERE rp.role_id = ?",
+                {SqliteDb::Bind((long long)role.id)});
             json perms_array = json::array();
             for (const auto& p : perms_result) {
                 perms_array.push_back({
@@ -972,6 +963,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1026,6 +1019,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1065,6 +1060,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1099,6 +1096,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1133,6 +1132,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1172,6 +1173,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "user:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1420,6 +1423,8 @@ void register_admin_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "system:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
 
@@ -1602,19 +1607,17 @@ void register_admin_routes(httplib::Server& svr) {
 
             if (import_data.contains("evaluations") && import_data["evaluations"].is_array()) {
                 for (const auto& eval_json : import_data["evaluations"]) {
-                    char sql[2048];
-                    snprintf(sql, sizeof(sql),
-                        "INSERT OR IGNORE INTO evaluations (id, student_id, dimension_id, score, comment, evaluator_id, created_at, updated_at) VALUES (%d, '%s', %d, %d, '%s', '%s', '%s', '%s')",
-                        eval_json.value("id", 0),
-                        db.escapeString(eval_json.value("student_id", "")).c_str(),
-                        eval_json.value("dimension_id", 0),
-                        eval_json.value("score", 0),
-                        db.escapeString(eval_json.value("comment", "")).c_str(),
-                        db.escapeString(eval_json.value("evaluator_id", "")).c_str(),
-                        eval_json.value("created_at", "").c_str(),
-                        eval_json.value("updated_at", "").c_str()
-                    );
-                    if (db.execute(sql)) {
+                    bool ok = db.execute_bind(
+                        "INSERT OR IGNORE INTO evaluations (id, student_id, dimension_id, score, comment, evaluator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        {SqliteDb::Bind((long long)eval_json.value("id", 0)),
+                         SqliteDb::Bind(eval_json.value("student_id", "")),
+                         SqliteDb::Bind((long long)eval_json.value("dimension_id", 0)),
+                         SqliteDb::Bind((long long)eval_json.value("score", 0)),
+                         SqliteDb::Bind(eval_json.value("comment", "")),
+                         SqliteDb::Bind(eval_json.value("evaluator_id", "")),
+                         SqliteDb::Bind(eval_json.value("created_at", "")),
+                         SqliteDb::Bind(eval_json.value("updated_at", ""))});
+                    if (ok) {
                         imported_count++;
                     } else {
                         skipped_count++;
@@ -1624,19 +1627,17 @@ void register_admin_routes(httplib::Server& svr) {
 
             if (import_data.contains("mall_items") && import_data["mall_items"].is_array()) {
                 for (const auto& item_json : import_data["mall_items"]) {
-                    char sql[1024];
-                    snprintf(sql, sizeof(sql),
-                        "INSERT OR IGNORE INTO mall_items (id, name, description, cost, stock, image_url, status, created_at) VALUES (%d, '%s', '%s', %d, %d, '%s', %d, '%s')",
-                        item_json.value("id", 0),
-                        db.escapeString(item_json.value("name", "")).c_str(),
-                        db.escapeString(item_json.value("description", "")).c_str(),
-                        item_json.value("cost", 0),
-                        item_json.value("stock", -1),
-                        item_json.value("image_url", "").c_str(),
-                        item_json.value("status", 1),
-                        item_json.value("created_at", "").c_str()
-                    );
-                    if (db.execute(sql)) {
+                    bool ok = db.execute_bind(
+                        "INSERT OR IGNORE INTO mall_items (id, name, description, cost, stock, image_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        {SqliteDb::Bind((long long)item_json.value("id", 0)),
+                         SqliteDb::Bind(item_json.value("name", "")),
+                         SqliteDb::Bind(item_json.value("description", "")),
+                         SqliteDb::Bind((long long)item_json.value("cost", 0)),
+                         SqliteDb::Bind((long long)item_json.value("stock", -1)),
+                         SqliteDb::Bind(item_json.value("image_url", "")),
+                         SqliteDb::Bind((long long)item_json.value("status", 1)),
+                         SqliteDb::Bind(item_json.value("created_at", ""))});
+                    if (ok) {
                         imported_count++;
                     } else {
                         skipped_count++;
@@ -1646,16 +1647,14 @@ void register_admin_routes(httplib::Server& svr) {
 
             if (import_data.contains("redemption_records") && import_data["redemption_records"].is_array()) {
                 for (const auto& red_json : import_data["redemption_records"]) {
-                    char sql[1024];
-                    snprintf(sql, sizeof(sql),
-                        "INSERT OR IGNORE INTO redemption_records (id, student_id, item_id, cost, created_at) VALUES (%d, '%s', %d, %d, '%s')",
-                        red_json.value("id", 0),
-                        db.escapeString(red_json.value("student_id", "")).c_str(),
-                        red_json.value("item_id", 0),
-                        red_json.value("cost", 0),
-                        red_json.value("created_at", "").c_str()
-                    );
-                    if (db.execute(sql)) {
+                    bool ok = db.execute_bind(
+                        "INSERT OR IGNORE INTO redemption_records (id, student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?, ?)",
+                        {SqliteDb::Bind((long long)red_json.value("id", 0)),
+                         SqliteDb::Bind(red_json.value("student_id", "")),
+                         SqliteDb::Bind((long long)red_json.value("item_id", 0)),
+                         SqliteDb::Bind((long long)red_json.value("cost", 0)),
+                         SqliteDb::Bind(red_json.value("created_at", ""))});
+                    if (ok) {
                         imported_count++;
                     } else {
                         skipped_count++;

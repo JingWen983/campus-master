@@ -70,26 +70,27 @@ bool load_users_from_db() {
     return !users.empty();
 }
 
+// 安全修复 V2：用户相关 SQL 全部改用参数化绑定
 bool save_user_to_db(const User& user) {
-    char sql[2048];
-    snprintf(sql, sizeof(sql),
-        "INSERT OR REPLACE INTO users (id, username, password_hash, role_id, name, className, points) VALUES ('%s', '%s', '%s', %d, '%s', '%s', %d)",
-        db.escapeString(user.id).c_str(), db.escapeString(user.username).c_str(),
-        db.escapeString(user.password_hash).c_str(), user.role_id,
-        db.escapeString(user.name).c_str(), db.escapeString(user.className).c_str(), user.points);
-    return db.execute(sql);
+    return db.execute_bind(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, role_id, name, className, points) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        {SqliteDb::Bind(user.id), SqliteDb::Bind(user.username),
+         SqliteDb::Bind(user.password_hash), SqliteDb::Bind((long long)user.role_id),
+         SqliteDb::Bind(user.name), SqliteDb::Bind(user.className),
+         SqliteDb::Bind((long long)user.points)});
 }
 
 bool delete_user_from_db(const string& user_id) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "DELETE FROM users WHERE id = '%s'", db.escapeString(user_id).c_str());
-    return db.execute(sql);
+    return db.execute_bind(
+        "DELETE FROM users WHERE id = ?",
+        {SqliteDb::Bind(user_id)});
 }
 
 bool update_user_points_in_db(const string& user_id, int points) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "UPDATE users SET points = %d WHERE id = '%s'", points, db.escapeString(user_id).c_str());
-    return db.execute(sql);
+    return db.execute_bind(
+        "UPDATE users SET points = ? WHERE id = ?",
+        {SqliteDb::Bind((long long)points), SqliteDb::Bind(user_id)});
 }
 
 // 从 u.id 中提取最后一段数字（最后一个 '-' 之后的部分）
