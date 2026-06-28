@@ -23,6 +23,14 @@ _test_*.py
 _test_*.csv
 _*.py
 
+# 安全修复 V16：禁止提交 Cookie / 凭据文件
+cookies*.txt
+*.cookie
+*.session
+.env
+*.pem
+*.key
+
 # 系统文件
 Thumbs.db
 Desktop.ini
@@ -34,8 +42,10 @@ Desktop.ini
 *.swp
 *.swo
 
-# 日志和临时数据库（保留 campus_system.db 作为种子数据）
+# 安全修复 V16：日志和所有运行时数据库一律不入库
+# 种子数据如需保留请改名为 seed.db 并加入 docs/seed/ 目录单独管理
 *.log
+*.db
 *.db-journal
 *.db-shm
 *.db-wal

@@ -8,6 +8,8 @@
 #include "httplib.h"
 
 #include <cstdio>
+#include <set>
+#include <string>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -302,6 +304,9 @@ int main() {
 
     // 8. 设置线程池
     svr.new_task_queue = [&]() { return new httplib::ThreadPool(g_config.thread_count); };
+
+    // 安全修复 V10：CSRF 校验在具体状态变更类路由内部通过 require_csrf() 完成
+    // （当前 httplib 版本不支持 pre_routing_handler 全局中间件）
 
     // 9. HTTPS 支持提示
     if (g_config.https_enabled) {

@@ -130,7 +130,8 @@ void register_teacher_routes(httplib::Server& svr) {
 
             // 创建新学生 - 生成字符串 ID
             string new_id = generate_user_id(3, grade_code, class_code);
-            string default_password = "123456";
+            // 安全修复 V13：默认密码由服务端生成随机强密码并返回，不再硬编码 123456
+            std::string default_password = generate_random_password();
             User new_user = {
                 new_id,
                 studentId,
@@ -154,7 +155,8 @@ void register_teacher_routes(httplib::Server& svr) {
                     {"studentId", studentId},
                     {"name", name},
                     {"className", className},
-                    {"points", points}
+                    {"points", points},
+                    {"initial_password", default_password}
                 }}
             };
 
@@ -940,7 +942,8 @@ void register_teacher_routes(httplib::Server& svr) {
                 string student_id = row[0];
                 string name = row[1];
                 string className = row[2];
-                string password = row.size() >= 4 ? row[3] : "123456"; // 默认密码
+                // 安全修复 V13：批量导入未提供密码时随机生成，不再硬编码 123456
+                string password = row.size() >= 4 ? row[3] : generate_random_password();
 
                 if (student_id.empty() || name.empty()) {
                     fail_count++;
@@ -985,7 +988,9 @@ void register_teacher_routes(httplib::Server& svr) {
         } catch (json::parse_error& e) {
             response = {{"code", 400}, {"msg", "数据格式错误"}};
         } catch (exception& e) {
-            response = {{"code", 500}, {"msg", string("导入失败: ") + e.what()}};
+            // 安全修复 V15：不向客户端回显内部异常细节
+            Logger::error(string("学生批量导入失败: ") + e.what());
+            response = {{"code", 500}, {"msg", "导入失败"}};
         }
 
         res.set_content(response.dump(), "application/json");

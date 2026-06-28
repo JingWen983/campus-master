@@ -157,17 +157,18 @@ string generate_user_id(int role_id, const string& grade_code, const string& cla
 
 // ====== 索引优化结构 ======
 
-unordered_map<string, User> user_id_map;           // 用户ID到用户的映射
-unordered_map<string, User> user_username_map;  // 用户名到用户的映射
+// 安全修复 V12：索引改为存储 users 向量的下标，避免副本与原数据不一致
+unordered_map<string, size_t> user_id_map;           // 用户ID到 users 下标的映射
+unordered_map<string, size_t> user_username_map;     // 用户名到 users 下标的映射
 unordered_map<int, Role> role_id_map;           // 角色ID到角色的映射
 unordered_map<int, Permission> permission_id_map; // 权限ID到权限的映射
 unordered_map<int, vector<int>> role_permission_map; // 角色ID到权限ID列表的映射
 
 // 初始化索引
 void init_indexes() {
-    for (const auto& user : users) {
-        user_id_map[user.id] = user;
-        user_username_map[user.username] = user;
+    for (size_t i = 0; i < users.size(); i++) {
+        user_id_map[users[i].id] = i;
+        user_username_map[users[i].username] = i;
     }
     for (const auto& role : roles) {
         role_id_map[role.id] = role;
@@ -182,8 +183,13 @@ void init_indexes() {
 
 // 更新用户索引
 void update_user_index(const User& user) {
-    user_id_map[user.id] = user;
-    user_username_map[user.username] = user;
+    for (size_t i = 0; i < users.size(); i++) {
+        if (users[i].id == user.id) {
+            user_id_map[user.id] = i;
+            user_username_map[user.username] = i;
+            return;
+        }
+    }
 }
 
 // 删除用户索引
@@ -192,11 +198,11 @@ void remove_user_index(const string& user_id, const string& username) {
     user_username_map.erase(username);
 }
 
-// 使用索引查找用户
+// 使用索引查找用户（返回 users 向量真实引用）
 User* find_user_by_id(const string& user_id) {
     auto it = user_id_map.find(user_id);
-    if (it != user_id_map.end()) {
-        return &it->second;
+    if (it != user_id_map.end() && it->second < users.size()) {
+        return &users[it->second];
     }
     return nullptr;
 }
@@ -204,8 +210,8 @@ User* find_user_by_id(const string& user_id) {
 // 使用索引查找用户
 User* find_user_by_username(const string& username) {
     auto it = user_username_map.find(username);
-    if (it != user_username_map.end()) {
-        return &it->second;
+    if (it != user_username_map.end() && it->second < users.size()) {
+        return &users[it->second];
     }
     return nullptr;
 }

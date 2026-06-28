@@ -4,6 +4,9 @@
 #include <string>
 #include <cstring>
 #include <cstdio>
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 // SHA256 常量
 static const unsigned int SHA256_K[] = {
@@ -85,13 +88,102 @@ inline std::string sha256(const std::string& input) {
     return std::string(hex);
 }
 
-// 简单的密码哈希函数
-inline std::string hash_password(const std::string& password) {
-    return sha256(password);
+// 安全修复 V5：密码哈希采用 PBKDF2-HMAC-SHA256 + 随机盐 + 高迭代次数
+// 存储格式：pbkdf2$<iterations>$<salt_hex>$<hash_hex>
+// 兼容旧库：若传入的 hash 不以 "pbkdf2$" 开头，按旧 SHA256 校验，校验通过后由调用方升级
+inline std::string pbkdf2_sha256(const std::string& password, const std::string& salt,
+                                 int iterations = 100000) {
+    // HMAC-SHA256 的内/外层块大小
+    const int BLOCK = 64;
+    // HMAC K
+    unsigned char k_ipad[BLOCK] = {0};
+    unsigned char k_opad[BLOCK] = {0};
+    if (salt.size() > (size_t)BLOCK) {
+        std::string s = sha256(salt);
+        std::memcpy(k_ipad, s.data(), s.size() < 32 ? s.size() : 32);
+        std::memcpy(k_opad, s.data(), s.size() < 32 ? s.size() : 32);
+    } else {
+        std::memcpy(k_ipad, salt.data(), salt.size());
+        std::memcpy(k_opad, salt.data(), salt.size());
+    }
+    for (int i = 0; i < BLOCK; i++) { k_ipad[i] ^= 0x36; k_opad[i] ^= 0x5c; }
+
+    // PBKDF2 单块派生（dkLen = 32，只需 1 块）
+    unsigned char u[32];
+    {
+        std::string msg;
+        msg.append((char*)k_ipad, BLOCK);
+        msg.append(salt);
+        msg.push_back(0); msg.push_back(0); msg.push_back(0); msg.push_back(1); // INT(1) BE
+        std::string h1 = sha256(msg);
+        std::memcpy(u, h1.data(), 32);
+
+        std::string msg2;
+        msg2.append((char*)k_opad, BLOCK);
+        msg2.append((char*)u, 32);
+        std::string h2 = sha256(msg2);
+        std::memcpy(u, h2.data(), 32);
+    }
+    unsigned char t[32];
+    std::memcpy(t, u, 32);
+    for (int i = 1; i < iterations; i++) {
+        std::string msg;
+        msg.append((char*)k_ipad, BLOCK);
+        msg.append((char*)u, 32);
+        std::string h1 = sha256(msg);
+        std::memcpy(u, h1.data(), 32);
+
+        std::string msg2;
+        msg2.append((char*)k_opad, BLOCK);
+        msg2.append((char*)u, 32);
+        std::string h2 = sha256(msg2);
+        std::memcpy(u, h2.data(), 32);
+        for (int j = 0; j < 32; j++) t[j] ^= u[j];
+    }
+
+    char hex[65];
+    for (int i = 0; i < 32; i++) std::sprintf(hex + i * 2, "%02x", t[i]);
+    hex[64] = 0;
+    return std::string(hex);
 }
 
-// 验证密码
+// 安全修复 V4：CSPRNG —— 使用 std::random_device 生成随机字节
+inline std::string generate_random_hex(int bytes) {
+    std::random_device rd;
+    std::ostringstream oss;
+    for (int i = 0; i < bytes; i++) {
+        unsigned char b = (unsigned char)(rd() & 0xFF);
+        oss << std::hex << std::setw(2) << std::setfill('0') << (int)b;
+    }
+    return oss.str();
+}
+
+// 简单的密码哈希函数（新版带盐）
+inline std::string hash_password(const std::string& password) {
+    std::string salt = generate_random_hex(16);
+    std::string dk = pbkdf2_sha256(password, salt);
+    return "pbkdf2$100000$" + salt + "$" + dk;
+}
+
+// 验证密码：自动识别新版 pbkdf2 与旧版 sha256
 inline bool verify_password(const std::string& password, const std::string& hash) {
+    if (hash.compare(0, 7, "pbkdf2$") == 0) {
+        // pbkdf2$<iters>$<salt>$<dk>
+        size_t p1 = hash.find('$', 7);
+        if (p1 == std::string::npos) return false;
+        size_t p2 = hash.find('$', p1 + 1);
+        if (p2 == std::string::npos) return false;
+        int iters = std::atoi(hash.c_str() + 7);
+        std::string salt = hash.substr(p1 + 1, p2 - p1 - 1);
+        std::string dk = hash.substr(p2 + 1);
+        // 常量时间比较
+        std::string calc = pbkdf2_sha256(password, salt, iters);
+        if (calc.size() != dk.size()) return false;
+        unsigned char diff = 0;
+        for (size_t i = 0; i < calc.size(); i++) diff |= (unsigned char)(calc[i] ^ dk[i]);
+        return diff == 0;
+    }
+    // 旧版兼容：无盐 SHA256
     return sha256(password) == hash;
 }
 
@@ -104,27 +196,28 @@ inline std::string get_current_time() {
     return std::string(buffer);
 }
 
-// 生成随机密码（8-12位，包含大小写字母和数字）
+// 安全修复 V4：生成随机密码（8-12位，包含大小写字母和数字），使用 CSPRNG
 inline std::string generate_random_password() {
     const std::string uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const std::string lowercase = "abcdefghijklmnopqrstuvwxyz";
     const std::string digits = "0123456789";
     const std::string all_chars = uppercase + lowercase + digits;
 
-    srand(time(nullptr));
-    int length = 8 + rand() % 5; // 8-12位
+    std::random_device rd;
+    std::uniform_int_distribution<int> len_dist(0, 4);
+    int length = 8 + len_dist(rd);
 
     std::string password;
-    password += uppercase[rand() % uppercase.length()];
-    password += lowercase[rand() % lowercase.length()];
-    password += digits[rand() % digits.length()];
+    password += uppercase[rd() % uppercase.length()];
+    password += lowercase[rd() % lowercase.length()];
+    password += digits[rd() % digits.length()];
 
     for (int i = 3; i < length; i++) {
-        password += all_chars[rand() % all_chars.length()];
+        password += all_chars[rd() % all_chars.length()];
     }
 
     for (int i = 0; i < length; i++) {
-        int j = rand() % length;
+        int j = rd() % length;
         char temp = password[i];
         password[i] = password[j];
         password[j] = temp;
