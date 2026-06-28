@@ -1,0 +1,37 @@
+# Checklist
+
+- [x] `main.cpp` init_sql 中 users 表新增 `parent_password_hash` 和 `parent_phone` 字段（使用 ALTER TABLE ADD COLUMN 兼容旧库）
+- [x] `main.cpp` init_sql 中创建 `parent_messages` 表，含 student_id/sender_type/sender_id/content/reply_to/read_status/created_at 字段
+- [x] `main.cpp` init_sql 中为默认 student 账号设置 parent_password_hash（parent123 的 SHA256）和 parent_phone（13800000001）
+- [x] `auth.h` 新增 `generate_parent_token`（ptoken_ 前缀）、`verify_parent_token`、`get_student_id_from_parent_token`、`check_parent_auth_middleware`
+- [x] `routes_parent.cpp` 实现 `POST /api/parent/login`，验证家长密码并返回 ptoken_ + children 列表
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/children`，返回同 parent_phone 的所有学生
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/student/{id}/info`，含越权校验（{id} 须与登录子女同 parent_phone）
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/student/{id}/points`，返回积分记录
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/student/{id}/evaluation`，返回评价记录
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/student/{id}/redemptions`，返回兑换记录
+- [x] `routes_parent.cpp` 实现 `GET /api/parent/student/{id}/messages` 和 `POST /api/parent/student/{id}/messages`
+- [x] `routes_teacher.cpp` 新增 `GET /api/teacher/parent-messages`（按未读优先+时间倒序）
+- [x] `routes_teacher.cpp` 新增 `POST /api/teacher/parent-messages/{id}/reply`（回复并标记原留言已读）
+- [x] `routes_teacher.cpp` 新增 `PUT /api/teacher/parent-messages/{id}/read`（标记已读）
+- [x] `routes.h` 新增 `register_parent_routes` 声明
+- [x] `main.cpp` 调用 `register_parent_routes(svr)`
+- [x] `routes_static.cpp` 新增 `GET /parent.html` 路由
+- [x] `build.bat` 编译列表新增 `routes_parent.cpp`
+- [x] `parent.html` 创建，使用 Vue 3 + Tailwind（本地化引用 /lib/ 下资源），无外部 CDN 依赖
+- [x] `parent.html` 实现子女切换栏，点击可切换查看不同子女数据
+- [x] `parent.html` 实现子女信息卡（姓名/班级/积分/班级排名）
+- [x] `parent.html` 实现积分记录表格（时间/积分/类型/原因）
+- [x] `parent.html` 实现教师评价卡片列表（维度/分数/评语/评价人/时间）
+- [x] `parent.html` 实现兑换记录表格（时间/商品/消耗积分）
+- [x] `parent.html` 实现留言对话区（消息列表 + 底部输入框）
+- [x] `parent.html` 调用 `checkAuth(4)` 校验家长登录状态，未登录跳转回登录页
+- [x] `index.html` 增加"家长登录"入口，点击切换为子女学号+家长密码表单
+- [x] `index.html` 家长登录成功后跳转 `/parent.html`
+- [x] `lib/common.js` 的 `checkAuth` 支持 role_id=4，roleNames 增加 `{ 4: '家长' }`
+- [x] `teacher.html` 新增"家长留言"标签页
+- [x] `teacher.html` 实现留言列表加载（未读优先+时间倒序）和回复功能
+- [x] build.bat 编译通过，无编译错误
+- [x] server.exe 启动后，家长使用 student/parent123 登录成功并跳转 parent.html
+- [x] 家长端可查看子女信息、积分记录、评价、兑换记录
+- [x] 家长端可发送留言，教师端可查看并回复留言

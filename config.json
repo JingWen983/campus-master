@@ -1,0 +1,27 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "thread_count": 8
+    },
+    "database": {
+        "path": "campus_system.db"
+    },
+    "log": {
+        "file": "server.log",
+        "max_size_mb": 10,
+        "max_files": 5
+    },
+    "security": {
+        "token_expiry_hours": 24,
+        "session_expiry_hours": 24,
+        "cookie_name": "sid",
+        "max_login_attempts": 5,
+        "lockout_minutes": 30
+    },
+    "https": {
+        "enabled": false,
+        "cert_path": "",
+        "key_path": ""
+    }
+}

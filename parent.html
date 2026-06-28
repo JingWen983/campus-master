@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>家长端 - 校园文明能量站</title>
+
+    <!-- 1. 引入 Tailwind CSS (样式) -->
+    <script src="/lib/tailwind.min.js"></script>
+
+    <!-- 2. 引入 Vue 3 (本地) -->
+    <script src="/lib/vue.min.js"></script>
+
+    <!-- 3. 引入 FontAwesome 图标库 (本地) -->
+    <link href="/lib/fontawesome.min.css" rel="stylesheet">
+
+    <!-- 4. 引入公共工具库 -->
+    <script src="/lib/common.js"></script>
+
+    <!-- 5. Google Fonts: Fraunces (display) + Noto Sans SC (body) -->
+    <link href="/lib/fonts.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --cream: #faf6ef;
+            --cream-deep: #f3ece0;
+            --indigo-50: #eef2ff;
+            --indigo-100: #e0e7ff;
+            --indigo-200: #c7d2fe;
+            --indigo-500: #6366f1;
+            --indigo-600: #4f46e5;
+            --indigo-700: #4338ca;
+            --violet-400: #a78bfa;
+            --violet-500: #8b5cf6;
+            --violet-600: #7c3aed;
+            --violet-700: #6d28d9;
+            --amber-400: #fbbf24;
+            --amber-500: #f59e0b;
+            --emerald-500: #10b981;
+            --emerald-600: #059669;
+            --rose-500: #f43f5e;
+            --stone-800: #292524;
+            --stone-700: #44403c;
+            --stone-600: #57534e;
+            --stone-500: #78716c;
+            --stone-400: #a8a29e;
+            --stone-300: #d6d3d1;
+            --stone-200: #e7e5e4;
+            --stone-100: #f5f5f4;
+        }
+
+        * { -webkit-tap-highlight-color: transparent; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+            color: var(--stone-700);
+            background-color: var(--cream);
+            overflow: hidden;
+        }
+
+        body {
+            background:
+                radial-gradient(circle at 12% 18%, rgba(99, 102, 241, 0.10), transparent 45%),
+                radial-gradient(circle at 88% 12%, rgba(124, 58, 237, 0.10), transparent 40%),
+                radial-gradient(circle at 80% 88%, rgba(167, 139, 250, 0.08), transparent 45%),
+                var(--cream);
+        }
+
+        .font-display { font-family: 'Fraunces', 'Noto Serif SC', serif; font-optical-sizing: auto; }
+        .font-body { font-family: 'Noto Sans SC', sans-serif; }
+
+        [v-cloak] { display: none; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 噪点纹理 */
+        .grain-overlay::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0.035;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        /* 浮动 blob */
+        .blob {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(70px);
+            opacity: 0.45;
+            pointer-events: none;
+            z-index: 0;
+            animation: floatBlob 18s ease-in-out infinite;
+        }
+        .blob-1 { width: 400px; height: 400px; background: radial-gradient(circle, #818cf8, transparent 70%); top: -120px; right: -100px; animation-delay: 0s; }
+        .blob-2 { width: 340px; height: 340px; background: radial-gradient(circle, #c4b5fd, transparent 70%); bottom: -100px; left: -80px; animation-delay: -6s; }
+        .blob-3 { width: 300px; height: 300px; background: radial-gradient(circle, #a78bfa, transparent 70%); top: 40%; left: 35%; animation-delay: -12s; opacity: 0.3; }
+
+        @keyframes floatBlob {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -40px) scale(1.08); }
+            66% { transform: translate(-20px, 30px) scale(0.95); }
+        }
+
+        /* 玻璃拟态卡片 */
+        .glass {
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+        }
+        .glass-strong {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(24px) saturate(160%);
+            -webkit-backdrop-filter: blur(24px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+        }
+
+        /* 侧边栏玻璃 */
+        .glass-side {
+            background: rgba(255, 255, 255, 0.62);
+            backdrop-filter: blur(20px) saturate(140%);
+            -webkit-backdrop-filter: blur(20px) saturate(140%);
+            border-right: 1px solid rgba(255, 255, 255, 0.55);
+        }
+
+        /* 导航项 */
+        .nav-item {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .nav-item:hover { transform: translateX(3px); }
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.16) 0%, rgba(124, 58, 237, 0.08) 100%);
+            color: var(--indigo-700);
+            box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+        }
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 22%;
+            bottom: 22%;
+            width: 3px;
+            border-radius: 0 4px 4px 0;
+            background: linear-gradient(180deg, #6366f1, #7c3aed);
+        }
+
+        /* 子女切换卡片 */
+        .child-card {
+            transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(14px) saturate(140%);
+            -webkit-backdrop-filter: blur(14px) saturate(140%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            cursor: pointer;
+        }
+        .child-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(99, 102, 241, 0.35);
+            box-shadow: 0 12px 28px -10px rgba(79, 70, 229, 0.25);
+        }
+        .child-card.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(124, 58, 237, 0.10));
+            border: 1.5px solid rgba(99, 102, 241, 0.55);
+            box-shadow: 0 12px 28px -10px rgba(79, 70, 229, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+        }
+        .child-card.active .child-avatar {
+            background: linear-gradient(135deg, #6366f1, #7c3aed) !important;
+            box-shadow: 0 6px 14px -4px rgba(79, 70, 229, 0.5) !important;
+        }
+
+        /* HERO 信息卡 */
+        .hero-info {
+            background:
+                radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.28), transparent 50%),
+                linear-gradient(135deg, #4338ca 0%, #4f46e5 45%, #7c3aed 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-info::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n2'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n2)'/%3E%3C/svg%3E");
+            opacity: 0.55;
+            mix-blend-mode: overlay;
+        }
+        .hero-info > * { position: relative; z-index: 2; }
+
+        .points-number {
+            font-family: 'Fraunces', serif;
+            font-weight: 800;
+            font-variation-settings: "opsz" 144;
+            line-height: 0.9;
+            letter-spacing: -0.04em;
+            background: linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 40px rgba(199, 210, 254, 0.4);
+        }
+
+        /* 装饰图标 */
+        .deco-icon {
+            position: absolute;
+            opacity: 0.14;
+            pointer-events: none;
+        }
+
+        /* 标签页 */
+        .tab-btn {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+            color: var(--stone-500);
+        }
+        .tab-btn:hover { color: var(--indigo-600); }
+        .tab-btn.active {
+            color: var(--indigo-600);
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(124, 58, 237, 0.08));
+            box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: -1px;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 3px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #6366f1, #7c3aed);
+        }
+
+        /* 主按钮：indigo→violet 渐变 */
+        .btn-indigo {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #7c3aed 100%);
+            color: #fff;
+            box-shadow: 0 6px 18px -6px rgba(79, 70, 229, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+            transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
+        }
+        .btn-indigo:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 10px 24px -6px rgba(79, 70, 229, 0.6); }
+        .btn-indigo:active { transform: translateY(0); }
+        .btn-indigo:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* 次按钮：ghost */
+        .btn-ghost {
+            background: rgba(255, 255, 255, 0.6);
+            color: var(--stone-700);
+            border: 1px solid var(--stone-200);
+            transition: all 0.25s ease;
+        }
+        .btn-ghost:hover { background: rgba(255, 255, 255, 0.9); border-color: var(--indigo-500); color: var(--indigo-600); }
+
+        /* 表格 */
+        .table-row {
+            transition: background 0.2s ease;
+        }
+        .table-row:hover {
+            background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(124, 58, 237, 0.03));
+        }
+
+        /* 标签徽章 */
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .chip-award { background: rgba(16, 185, 129, 0.12); color: #047857; }
+        .chip-deduct { background: rgba(244, 63, 94, 0.12); color: #be123c; }
+
+        /* 评价进度条 */
+        .eval-bar {
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(120, 113, 108, 0.12);
+            overflow: hidden;
+            position: relative;
+        }
+        .eval-bar > span {
+            display: block;
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        /* 留言气泡 */
+        .msg-bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 1.25rem;
+            font-size: 14px;
+            line-height: 1.55;
+            word-break: break-word;
+            box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+        }
+        .msg-parent {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: #fff;
+            border-bottom-right-radius: 0.4rem;
+        }
+        .msg-teacher {
+            background: rgba(255, 255, 255, 0.85);
+            color: var(--stone-800);
+            border: 1px solid var(--stone-200);
+            border-bottom-left-radius: 0.4rem;
+        }
+
+        /* 入场动画 */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-up { animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+        .delay-1 { animation-delay: 0.05s; }
+        .delay-2 { animation-delay: 0.12s; }
+        .delay-3 { animation-delay: 0.19s; }
+        .delay-4 { animation-delay: 0.26s; }
+        .delay-5 { animation-delay: 0.33s; }
+        .delay-6 { animation-delay: 0.40s; }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.94); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .scale-in { animation: scaleIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+        /* 大数字 */
+        .stat-number {
+            font-family: 'Fraunces', serif;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 60%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        /* 图标徽章 */
+        .icon-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .icon-badge::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.4), transparent 60%);
+            pointer-events: none;
+        }
+
+        /* 底部导航 */
+        .bottom-nav {
+            background: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(20px) saturate(140%);
+            -webkit-backdrop-filter: blur(20px) saturate(140%);
+            border-top: 1px solid rgba(255, 255, 255, 0.6);
+        }
+        .bottom-nav-item {
+            transition: all 0.25s ease;
+        }
+        .bottom-nav-item.active {
+            color: var(--indigo-600);
+        }
+        .bottom-nav-item.active .nav-icon-wrap {
+            background-color: #e0e7ff; /* indigo-100 */
+            color: var(--indigo-600);
+        }
+
+        /* 滚动条美化 */
+        main::-webkit-scrollbar { width: 8px; }
+        main::-webkit-scrollbar-track { background: transparent; }
+        main::-webkit-scrollbar-thumb { background: rgba(79, 70, 229, 0.18); border-radius: 999px; }
+        main::-webkit-scrollbar-thumb:hover { background: rgba(79, 70, 229, 0.32); }
+
+        /* 平滑过渡 */
+        .smooth-trans { transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+        /* line-clamp 兼容 */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* 移动端底部安全区 */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+    </style>
+</head>
+<body class="grain-overlay">
+    <!-- 浮动 blob 装饰 -->
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+
+    <!-- 响应式外层容器 -->
+    <div id="app" v-cloak class="flex h-screen w-full overflow-hidden relative font-body" style="z-index: 2;">
+
+        <!-- ================= 大屏侧边栏 (PC/平板可见, 手机隐藏) ================= -->
+        <aside class="hidden md:flex flex-col w-72 glass-side z-20 relative shrink-0">
+            <!-- 品牌头部 -->
+            <div class="px-6 py-6 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-lg" style="background: linear-gradient(135deg, #6366f1, #4f46e5); box-shadow: 0 8px 20px -6px rgba(79, 70, 229, 0.5);">
+                        <i class="fa-solid fa-heart text-lg"></i>
+                    </div>
+                    <div>
+                        <p class="font-display text-lg font-bold text-stone-900 leading-tight">家长端</p>
+                        <p class="text-[11px] text-stone-500 tracking-wider uppercase">Parent Portal</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导航：我的子女 -->
+            <div class="flex-1 overflow-y-auto no-scrollbar px-3 pb-4">
+                <p class="px-3 pt-2 pb-3 text-[10px] font-bold tracking-[0.2em] text-stone-400 uppercase">我的子女</p>
+                <div v-if="children.length === 0" class="px-3 py-2 text-xs text-stone-400">
+                    <i class="fa-solid fa-folder-open mr-2"></i>暂无子女信息
+                </div>
+                <div v-for="child in children" :key="child.id"
+                     @click="selectChild(child.id)"
+                     :class="['nav-item rounded-2xl px-3 py-3 mb-1 flex items-center gap-3 cursor-pointer', currentChildId === child.id ? 'active' : 'text-stone-600 hover:bg-white/60']">
+                    <div class="child-avatar w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-md" style="background: linear-gradient(135deg, #a8a29e, #78716c);">
+                        <span class="font-display font-bold text-sm">{{ (child.name || '?').charAt(0) }}</span>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-bold truncate" :class="currentChildId === child.id ? 'text-indigo-800' : 'text-stone-800'">{{ child.name }}</p>
+                        <p class="text-[10px] text-stone-500 truncate">{{ child.className }}</p>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <span class="font-display font-bold text-sm" :class="currentChildId === child.id ? 'text-indigo-700' : 'text-stone-700'">{{ child.points || '--' }}</span>
+                        <p class="text-[9px] text-stone-400 uppercase tracking-wider">points</p>
+                    </div>
+                </div>
+
+                <!-- 功能导航 -->
+                <p class="px-3 pt-6 pb-3 text-[10px] font-bold tracking-[0.2em] text-stone-400 uppercase">功能导航</p>
+                <button @click="switchTab('points')" :class="activeTab === 'points' ? 'nav-item active' : 'nav-item text-stone-600 hover:bg-white/60'" class="w-full flex items-center px-4 py-3 rounded-2xl">
+                    <i class="fa-solid fa-coins w-5 text-center text-base"></i>
+                    <span class="ml-3 font-medium text-sm">积分记录</span>
+                </button>
+                <button @click="switchTab('evaluation')" :class="activeTab === 'evaluation' ? 'nav-item active' : 'nav-item text-stone-600 hover:bg-white/60'" class="w-full flex items-center px-4 py-3 rounded-2xl">
+                    <i class="fa-solid fa-star w-5 text-center text-base"></i>
+                    <span class="ml-3 font-medium text-sm">教师评价</span>
+                </button>
+                <button @click="switchTab('redemptions')" :class="activeTab === 'redemptions' ? 'nav-item active' : 'nav-item text-stone-600 hover:bg-white/60'" class="w-full flex items-center px-4 py-3 rounded-2xl">
+                    <i class="fa-solid fa-receipt w-5 text-center text-base"></i>
+                    <span class="ml-3 font-medium text-sm">兑换记录</span>
+                </button>
+                <button @click="switchTab('messages')" :class="activeTab === 'messages' ? 'nav-item active' : 'nav-item text-stone-600 hover:bg-white/60'" class="w-full flex items-center px-4 py-3 rounded-2xl">
+                    <i class="fa-solid fa-comments w-5 text-center text-base"></i>
+                    <span class="ml-3 font-medium text-sm">家校留言</span>
+                </button>
+            </div>
+
+            <!-- 用户卡片 -->
+            <div class="p-4 shrink-0">
+                <div class="glass rounded-2xl p-3 flex items-center">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md" style="background: linear-gradient(135deg, #6366f1, #7c3aed); box-shadow: 0 6px 14px -4px rgba(79, 70, 229, 0.4);">
+                        <i class="fa-solid fa-user text-base"></i>
+                    </div>
+                    <div class="ml-3 min-w-0 flex-1">
+                        <p class="text-sm font-bold text-stone-800 truncate">{{ userInfo ? userInfo.name : '家长' }}</p>
+                        <p class="text-[11px] text-stone-500">家长账号</p>
+                    </div>
+                    <button @click="logout" class="w-9 h-9 rounded-lg flex items-center justify-center text-stone-400 hover:text-indigo-600 hover:bg-indigo-50/60 transition">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ================= 右侧/主体 内容区 ================= -->
+        <div class="flex-1 flex flex-col h-full relative overflow-hidden">
+
+            <!-- 手机端顶部 Header (大屏隐藏) -->
+            <header class="md:hidden bg-white/80 backdrop-blur-xl text-stone-800 h-14 flex items-center justify-between px-4 shrink-0 z-10 border-b border-stone-200/60">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white" style="background: linear-gradient(135deg, #4f46e5, #7c3aed);">
+                        <i class="fa-solid fa-heart text-sm"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-display text-base font-bold text-stone-800 leading-tight">家长端</h1>
+                        <p class="text-[9px] text-stone-500 uppercase tracking-wider">{{ userInfo ? userInfo.name : '家长' }}</p>
+                    </div>
+                </div>
+                <button @click="logout" class="w-9 h-9 rounded-lg bg-violet-50/80 flex items-center justify-center text-violet-600 hover:bg-violet-100 transition">
+                    <i class="fa-solid fa-right-from-bracket text-sm"></i>
+                </button>
+            </header>
+
+            <!-- 核心滚动区域 -->
+            <main class="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 no-scrollbar scroll-smooth relative z-10">
+                <div class="max-w-6xl mx-auto">
+
+                    <!-- ====== 子女切换栏（仅移动端，PC 端在侧边栏） ====== -->
+                    <section class="md:hidden mb-5 fade-up">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-people-roof text-indigo-500"></i>
+                                <h2 class="font-display text-base font-bold text-stone-800">我的子女</h2>
+                            </div>
+                            <span class="text-xs text-stone-500">共 {{ children.length }} 名</span>
+                        </div>
+
+                        <div v-if="children.length === 0" class="glass rounded-2xl p-6 text-center text-stone-400">
+                            <i class="fa-solid fa-folder-open text-2xl mb-2 opacity-40"></i>
+                            <p class="text-sm">暂无子女信息</p>
+                        </div>
+
+                        <div v-else class="flex gap-3 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
+                            <div v-for="(child, idx) in children" :key="child.id"
+                                 @click="selectChild(child.id)"
+                                 :class="['child-card rounded-2xl p-3 min-w-[160px] fade-up', currentChildId === child.id ? 'active' : '', 'delay-' + ((idx % 5) + 1)]">
+                                <div class="flex items-center gap-2.5 mb-2">
+                                    <div class="child-avatar w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm" style="background: linear-gradient(135deg, #a8a29e, #78716c);">
+                                        <span class="font-display font-bold text-xs">{{ (child.name || '?').charAt(0) }}</span>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="font-bold text-stone-800 text-sm truncate">{{ child.name }}</p>
+                                        <p class="text-[10px] text-stone-500 truncate">{{ child.className }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-end justify-between pt-2 border-t border-stone-200/50">
+                                    <span class="text-[9px] text-stone-500 uppercase tracking-wider">积分</span>
+                                    <span class="font-display font-bold text-lg" :style="currentChildId === child.id ? 'color: #4f46e5;' : 'color: #44403c;'">{{ child.points || '--' }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ====== 子女信息卡 (HERO) ====== -->
+                    <section v-if="currentChildInfo" class="mb-6 fade-up delay-2">
+                        <div class="hero-info rounded-[2rem] p-6 md:p-8 text-white shadow-2xl relative" style="box-shadow: 0 25px 50px -12px rgba(79, 70, 229, 0.4);">
+                            <!-- 装饰图标 -->
+                            <i class="fa-solid fa-graduation-cap deco-icon" style="right: -10px; bottom: -20px; font-size: 9rem; color: white;"></i>
+                            <i class="fa-solid fa-star deco-icon" style="right: 30px; top: -10px; font-size: 3rem; color: white; opacity: 0.18; transform: rotate(25deg);"></i>
+
+                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                                <!-- 左侧：姓名 + 班级 -->
+                                <div class="flex items-center gap-4">
+                                    <div class="w-16 h-16 md:w-20 md:h-20 rounded-3xl flex items-center justify-center text-white shrink-0 shadow-lg" style="background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.3);">
+                                        <span class="font-display font-bold text-3xl md:text-4xl">{{ (currentChildInfo.name || '?').charAt(0) }}</span>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-medium tracking-wider uppercase opacity-80 mb-1">子女档案</p>
+                                        <h3 class="font-display text-2xl md:text-3xl font-bold leading-tight">{{ currentChildInfo.name }}</h3>
+                                        <div class="flex items-center gap-2 mt-2 flex-wrap">
+                                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium" style="background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.25);">
+                                                <i class="fa-solid fa-school text-[10px]"></i>{{ currentChildInfo.className }}
+                                            </span>
+                                            <span v-if="currentChildInfo.username" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium" style="background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.25);">
+                                                <i class="fa-solid fa-id-badge text-[10px]"></i>{{ currentChildInfo.username }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 右侧：积分 + 排名 -->
+                                <div class="grid grid-cols-2 gap-4 md:gap-6 md:flex md:items-center">
+                                    <div class="text-center md:text-left">
+                                        <p class="text-[10px] font-medium tracking-wider uppercase opacity-80 mb-1">当前积分</p>
+                                        <div class="points-number text-5xl md:text-6xl">{{ currentChildInfo.points !== null && currentChildInfo.points !== undefined ? currentChildInfo.points : '--' }}</div>
+                                        <p class="font-display text-xs italic mt-1 opacity-80">energy points</p>
+                                    </div>
+                                    <div class="h-12 w-px bg-white/20 hidden md:block"></div>
+                                    <div class="text-center md:text-left">
+                                        <p class="text-[10px] font-medium tracking-wider uppercase opacity-80 mb-1">班级排名</p>
+                                        <div class="flex items-baseline justify-center md:justify-start gap-1">
+                                            <span class="font-display font-bold text-5xl md:text-6xl" style="color: #fde68a; text-shadow: 0 0 30px rgba(253, 230, 138, 0.4);">#</span>
+                                            <span class="font-display font-bold text-5xl md:text-6xl" style="color: #fde68a; text-shadow: 0 0 30px rgba(253, 230, 138, 0.4);">{{ currentChildInfo.rank || '--' }}</span>
+                                        </div>
+                                        <p class="font-display text-xs italic mt-1 opacity-80">class rank</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- 未选择子女提示 -->
+                    <section v-if="!currentChildInfo && children.length > 0" class="mb-6 fade-up">
+                        <div class="glass rounded-2xl p-8 text-center">
+                            <div class="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style="background: linear-gradient(135deg, #e0e7ff, #c7d2fe);">
+                                <i class="fa-solid fa-hand-pointer text-2xl text-indigo-700"></i>
+                            </div>
+                            <h3 class="font-display text-xl font-bold text-stone-800 mb-2">请选择一位子女</h3>
+                            <p class="text-sm text-stone-500">从左侧列表（或上方卡片）中选择子女，查看其详细信息</p>
+                        </div>
+                    </section>
+
+                    <section v-if="children.length === 0" class="mb-6 fade-up">
+                        <div class="glass rounded-2xl p-8 text-center">
+                            <i class="fa-solid fa-circle-info text-3xl text-indigo-500 mb-3"></i>
+                            <h3 class="font-display text-xl font-bold text-stone-800 mb-2">数据加载中...</h3>
+                            <p class="text-sm text-stone-500">正在获取您的子女信息</p>
+                        </div>
+                    </section>
+
+                    <!-- ====== Tab 1: 积分记录 ====== -->
+                    <div v-show="activeTab === 'points' && currentChildInfo" class="fade-up">
+                        <div class="glass rounded-3xl overflow-hidden">
+                            <div class="px-6 py-4 border-b border-stone-200/60 flex items-center justify-between" style="background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(124, 58, 237, 0.03));">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #e0e7ff, #c7d2fe); color: #4338ca;">
+                                        <i class="fa-solid fa-coins text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-display text-lg font-bold text-stone-800">积分记录</h3>
+                                        <p class="text-xs text-stone-500">每一次能量变动都在这里</p>
+                                    </div>
+                                </div>
+                                <button @click="loadPoints" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5">
+                                    <i class="fa-solid fa-rotate-right"></i>刷新
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="border-b border-stone-200/60">
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">时间</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">积分</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">类型</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">原因</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-stone-200/50">
+                                        <tr v-if="pointsRecords.length === 0">
+                                            <td colspan="4" class="px-6 py-12 text-center text-stone-400">
+                                                <i class="fa-solid fa-folder-open text-3xl mb-2 opacity-40"></i>
+                                                <p class="text-sm">暂无积分记录</p>
+                                            </td>
+                                        </tr>
+                                        <tr v-for="record in pointsRecords" :key="record.id" class="table-row">
+                                            <td class="px-6 py-4 whitespace-nowrap text-xs text-stone-500">{{ formatDateTime(record.time) }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="font-display font-bold text-base" :style="record.points > 0 ? 'color: #059669;' : (record.points < 0 ? 'color: #be123c;' : 'color: #78716c;')">
+                                                    {{ record.points > 0 ? '+' : '' }}{{ record.points }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span :class="record.points >= 0 ? 'chip-award' : 'chip-deduct'" class="chip">
+                                                    <i :class="record.points >= 0 ? 'fa-solid fa-arrow-up' : 'fa-solid fa-arrow-down'"></i>
+                                                    {{ record.type }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm text-stone-700">{{ record.reason }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ====== Tab 2: 教师评价 ====== -->
+                    <div v-show="activeTab === 'evaluation' && currentChildInfo" class="fade-up">
+                        <div class="mb-4 flex items-center justify-between">
+                            <div>
+                                <h3 class="font-display text-xl font-bold text-stone-800">教师评价</h3>
+                                <p class="text-xs text-stone-500 mt-0.5">五育并举 · 全面发展的成长画像</p>
+                            </div>
+                            <button @click="loadEvaluations" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5">
+                                <i class="fa-solid fa-rotate-right"></i>刷新
+                            </button>
+                        </div>
+
+                        <div v-if="evaluations.length === 0" class="glass rounded-3xl text-center py-16">
+                            <i class="fa-solid fa-star text-5xl mb-3 text-stone-300"></i>
+                            <p class="text-stone-400">暂无评价记录</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                            <div v-for="(evalItem, idx) in evaluations" :key="evalItem.id" :class="'glass lift-card rounded-3xl p-5 fade-up delay-' + ((idx % 5) + 1)" style="box-shadow: 0 4px 20px -8px rgba(79, 70, 229, 0.12), 0 2px 6px -2px rgba(0, 0, 0, 0.04);">
+                                <div class="flex justify-between items-start mb-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-md" style="background: linear-gradient(135deg, #6366f1, #7c3aed);">
+                                            <i class="fa-solid fa-star text-sm"></i>
+                                        </div>
+                                        <span class="font-display font-bold text-lg text-stone-800">{{ evalItem.dimension_name }}</span>
+                                    </div>
+                                    <span class="font-display font-bold text-3xl" style="color: #4f46e5;">{{ evalItem.score }}<span class="text-sm text-stone-400 font-body font-normal">/100</span></span>
+                                </div>
+                                <div class="eval-bar mb-4">
+                                    <span :style="{ width: Math.min(evalItem.score, 100) + '%', background: 'linear-gradient(90deg, #6366f1, #7c3aed)' }"></span>
+                                </div>
+                                <p class="text-sm text-stone-600 mb-3 leading-relaxed">{{ evalItem.comment || '暂无评语' }}</p>
+                                <p class="text-xs text-stone-400 flex items-center gap-2 flex-wrap">
+                                    <span class="flex items-center gap-1"><i class="fa-solid fa-chalkboard-user"></i>{{ evalItem.evaluator_name || '未知' }}</span>
+                                    <span class="text-stone-300">·</span>
+                                    <span class="flex items-center gap-1"><i class="fa-solid fa-clock"></i>{{ formatDateTime(evalItem.time) }}</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ====== Tab 3: 兑换记录 ====== -->
+                    <div v-show="activeTab === 'redemptions' && currentChildInfo" class="fade-up">
+                        <div class="glass rounded-3xl overflow-hidden">
+                            <div class="px-6 py-4 border-b border-stone-200/60 flex items-center justify-between" style="background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(124, 58, 237, 0.03));">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #fef3c7, #fcd34d); color: #b45309;">
+                                        <i class="fa-solid fa-gift text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-display text-lg font-bold text-stone-800">兑换记录</h3>
+                                        <p class="text-xs text-stone-500">用心血换来的每一份奖励</p>
+                                    </div>
+                                </div>
+                                <button @click="loadRedemptions" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5">
+                                    <i class="fa-solid fa-rotate-right"></i>刷新
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="border-b border-stone-200/60">
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">时间</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">商品</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">消耗积分</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-stone-200/50">
+                                        <tr v-if="redemptions.length === 0">
+                                            <td colspan="3" class="px-6 py-12 text-center text-stone-400">
+                                                <i class="fa-solid fa-folder-open text-3xl mb-2 opacity-40"></i>
+                                                <p class="text-sm">暂无兑换记录</p>
+                                            </td>
+                                        </tr>
+                                        <tr v-for="record in redemptions" :key="record.id" class="table-row">
+                                            <td class="px-6 py-4 whitespace-nowrap text-xs text-stone-500">{{ formatDateTime(record.time) }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center gap-2.5">
+                                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0" style="background: linear-gradient(135deg, #fbbf24, #f59e0b);">
+                                                        <i class="fa-solid fa-gift text-xs"></i>
+                                                    </div>
+                                                    <span class="text-sm font-semibold text-stone-800">{{ record.item_name || '未知商品' }}</span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="chip chip-deduct font-display font-bold text-sm">
+                                                    <i class="fa-solid fa-coins"></i>-{{ record.cost }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ====== Tab 4: 家校留言 ====== -->
+                    <div v-show="activeTab === 'messages' && currentChildInfo" class="fade-up">
+                        <div class="glass rounded-3xl overflow-hidden flex flex-col" style="height: calc(100vh - 380px); min-height: 420px;">
+                            <!-- 留言区头部 -->
+                            <div class="px-6 py-4 border-b border-stone-200/60 flex items-center justify-between shrink-0" style="background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(124, 58, 237, 0.03));">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #e0e7ff, #c7d2fe); color: #4338ca;">
+                                        <i class="fa-solid fa-comments text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-display text-lg font-bold text-stone-800">家校留言</h3>
+                                        <p class="text-xs text-stone-500">与老师保持沟通，共同关注成长</p>
+                                    </div>
+                                </div>
+                                <button @click="loadMessages" class="btn-ghost px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5">
+                                    <i class="fa-solid fa-rotate-right"></i>刷新
+                                </button>
+                            </div>
+
+                            <!-- 消息列表 -->
+                            <div ref="messageContainer" class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 no-scrollbar">
+                                <div v-if="messages.length === 0" class="h-full flex flex-col items-center justify-center text-stone-400">
+                                    <i class="fa-solid fa-comments text-5xl mb-3 opacity-40"></i>
+                                    <p class="text-sm">还没有留言，发起第一条沟通吧</p>
+                                </div>
+
+                                <div v-for="msg in messages" :key="msg.id" class="flex" :class="msg.sender_type === 'parent' ? 'justify-end' : 'justify-start'">
+                                    <div class="flex items-end gap-2 max-w-[80%]" :class="msg.sender_type === 'parent' ? 'flex-row-reverse' : 'flex-row'">
+                                        <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-md"
+                                             :style="msg.sender_type === 'parent' ? 'background: linear-gradient(135deg, #6366f1, #4f46e5);' : 'background: linear-gradient(135deg, #a8a29e, #78716c);'">
+                                            <i :class="msg.sender_type === 'parent' ? 'fa-solid fa-user' : 'fa-solid fa-chalkboard-user'"></i>
+                                        </div>
+                                        <div :class="msg.sender_type === 'parent' ? 'items-end' : 'items-start'" class="flex flex-col gap-1 min-w-0">
+                                            <div class="msg-bubble" :class="msg.sender_type === 'parent' ? 'msg-parent' : 'msg-teacher'">
+                                                {{ msg.content }}
+                                            </div>
+                                            <p class="text-[10px] text-stone-400 px-2" :class="msg.sender_type === 'parent' ? 'text-right' : 'text-left'">
+                                                {{ formatDateTime(msg.created_at) }}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 输入区 -->
+                            <div class="px-4 md:px-6 py-3 md:py-4 border-t border-stone-200/60 shrink-0" style="background: rgba(250, 246, 239, 0.5);">
+                                <div class="flex items-end gap-2 md:gap-3">
+                                    <textarea v-model="newMessage"
+                                              @keydown.enter.exact.prevent="sendMessage"
+                                              rows="1"
+                                              placeholder="输入留言内容，按 Enter 发送（Shift+Enter 换行）..."
+                                              class="input-soft flex-1 px-4 py-2.5 text-sm resize-none max-h-24"
+                                              style="min-height: 44px; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--stone-200); border-radius: 0.85rem; transition: all 0.2s ease; color: var(--stone-800); outline: none; outline-color: transparent;"></textarea>
+                                    <button @click="sendMessage" :disabled="!newMessage.trim()" class="btn-indigo px-4 md:px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-1.5 shrink-0">
+                                        <i class="fa-solid fa-paper-plane"></i>
+                                        <span class="hidden md:inline">发送</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </main>
+
+            <!-- ================= 手机端底部导航栏 (大屏隐藏) ================= -->
+            <nav class="md:hidden bottom-nav flex justify-around absolute bottom-0 w-full z-20 pb-safe shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.08)]">
+                <button @click="switchTab('points')" :class="activeTab === 'points' ? 'active' : ''" class="bottom-nav-item flex-1 py-3 flex flex-col items-center text-stone-400">
+                    <div class="nav-icon-wrap w-10 h-8 rounded-lg flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-coins text-xl"></i>
+                    </div>
+                    <span class="text-[10px] font-medium mt-0.5">积分</span>
+                </button>
+                <button @click="switchTab('evaluation')" :class="activeTab === 'evaluation' ? 'active' : ''" class="bottom-nav-item flex-1 py-3 flex flex-col items-center text-stone-400">
+                    <div class="nav-icon-wrap w-10 h-8 rounded-lg flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-star text-xl"></i>
+                    </div>
+                    <span class="text-[10px] font-medium mt-0.5">评价</span>
+                </button>
+                <button @click="switchTab('redemptions')" :class="activeTab === 'redemptions' ? 'active' : ''" class="bottom-nav-item flex-1 py-3 flex flex-col items-center text-stone-400">
+                    <div class="nav-icon-wrap w-10 h-8 rounded-lg flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-receipt text-xl"></i>
+                    </div>
+                    <span class="text-[10px] font-medium mt-0.5">兑换</span>
+                </button>
+                <button @click="switchTab('messages')" :class="activeTab === 'messages' ? 'active' : ''" class="bottom-nav-item flex-1 py-3 flex flex-col items-center text-stone-400">
+                    <div class="nav-icon-wrap w-10 h-8 rounded-lg flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-comments text-xl"></i>
+                    </div>
+                    <span class="text-[10px] font-medium mt-0.5">留言</span>
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    userInfo: null,
+                    children: [],
+                    currentChildId: null,
+                    currentChildInfo: null,
+                    activeTab: 'points',
+                    pointsRecords: [],
+                    evaluations: [],
+                    redemptions: [],
+                    messages: [],
+                    newMessage: '',
+                    // 已加载标签记录，避免重复请求
+                    loadedTabs: {}
+                }
+            },
+            methods: {
+                // 登录校验
+                checkLogin() {
+                    const userInfo = checkAuth(4);
+                    if (userInfo) {
+                        this.userInfo = userInfo;
+                    }
+                },
+
+                // 加载子女列表
+                async loadChildren() {
+                    try {
+                        const result = await apiRequest('GET', '/api/parent/children');
+                        if (result.code === 200) {
+                            this.children = result.data || [];
+                            // 默认选中第一个子女
+                            if (this.children.length > 0 && !this.currentChildId) {
+                                await this.selectChild(this.children[0].id);
+                            }
+                        } else {
+                            this.showError(result.msg || '获取子女列表失败');
+                        }
+                    } catch (e) {
+                        console.error('加载子女列表失败:', e);
+                        this.showError('网络错误，无法获取子女列表');
+                    }
+                },
+
+                // 切换子女
+                async selectChild(id) {
+                    if (this.currentChildId === id && this.currentChildInfo) return;
+                    this.currentChildId = id;
+                    // 重置已加载标记和数据
+                    this.loadedTabs = {};
+                    this.pointsRecords = [];
+                    this.evaluations = [];
+                    this.redemptions = [];
+                    this.messages = [];
+                    this.currentChildInfo = null;
+                    // 加载子女信息及当前标签数据
+                    await this.loadChildInfo();
+                    await this.loadActiveTabData();
+                },
+
+                // 加载子女信息
+                async loadChildInfo() {
+                    if (!this.currentChildId) return;
+                    try {
+                        const result = await apiRequest('GET', `/api/parent/student/${this.currentChildId}/info`);
+                        if (result.code === 200) {
+                            this.currentChildInfo = result.data;
+                            // 同步子女列表中的积分显示
+                            const child = this.children.find(c => c.id === this.currentChildId);
+                            if (child && result.data) {
+                                child.points = result.data.points;
+                            }
+                        } else {
+                            this.showError(result.msg || '获取子女信息失败');
+                        }
+                    } catch (e) {
+                        console.error('加载子女信息失败:', e);
+                        this.showError('网络错误，无法获取子女信息');
+                    }
+                },
+
+                // 加载积分记录
+                async loadPoints() {
+                    if (!this.currentChildId) return;
+                    try {
+                        const result = await apiRequest('GET', `/api/parent/student/${this.currentChildId}/points`);
+                        if (result.code === 200) {
+                            this.pointsRecords = result.data || [];
+                            this.loadedTabs.points = true;
+                        } else {
+                            this.showError(result.msg || '获取积分记录失败');
+                        }
+                    } catch (e) {
+                        console.error('加载积分记录失败:', e);
+                        this.showError('网络错误，无法获取积分记录');
+                    }
+                },
+
+                // 加载评价记录
+                async loadEvaluations() {
+                    if (!this.currentChildId) return;
+                    try {
+                        const result = await apiRequest('GET', `/api/parent/student/${this.currentChildId}/evaluation`);
+                        if (result.code === 200) {
+                            this.evaluations = result.data || [];
+                            this.loadedTabs.evaluation = true;
+                        } else {
+                            this.showError(result.msg || '获取评价记录失败');
+                        }
+                    } catch (e) {
+                        console.error('加载评价记录失败:', e);
+                        this.showError('网络错误，无法获取评价记录');
+                    }
+                },
+
+                // 加载兑换记录
+                async loadRedemptions() {
+                    if (!this.currentChildId) return;
+                    try {
+                        const result = await apiRequest('GET', `/api/parent/student/${this.currentChildId}/redemptions`);
+                        if (result.code === 200) {
+                            this.redemptions = result.data || [];
+                            this.loadedTabs.redemptions = true;
+                        } else {
+                            this.showError(result.msg || '获取兑换记录失败');
+                        }
+                    } catch (e) {
+                        console.error('加载兑换记录失败:', e);
+                        this.showError('网络错误，无法获取兑换记录');
+                    }
+                },
+
+                // 加载留言
+                async loadMessages() {
+                    if (!this.currentChildId) return;
+                    try {
+                        const result = await apiRequest('GET', `/api/parent/student/${this.currentChildId}/messages`);
+                        if (result.code === 200) {
+                            this.messages = result.data || [];
+                            this.loadedTabs.messages = true;
+                            this.$nextTick(() => { this.scrollToBottom(); });
+                        } else {
+                            this.showError(result.msg || '获取留言失败');
+                        }
+                    } catch (e) {
+                        console.error('加载留言失败:', e);
+                        this.showError('网络错误，无法获取留言');
+                    }
+                },
+
+                // 发送留言
+                async sendMessage() {
+                    const content = this.newMessage.trim();
+                    if (!content) return;
+                    if (!this.currentChildId) {
+                        this.showError('请先选择子女');
+                        return;
+                    }
+                    try {
+                        const result = await apiRequest('POST', `/api/parent/student/${this.currentChildId}/messages`, { content });
+                        if (result.code === 200) {
+                            this.newMessage = '';
+                            await this.loadMessages();
+                        } else {
+                            this.showError(result.msg || '发送失败');
+                        }
+                    } catch (e) {
+                        console.error('发送留言失败:', e);
+                        this.showError('网络错误，发送失败');
+                    }
+                },
+
+                // 切换标签页（按需加载）
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    this.loadActiveTabData();
+                },
+
+                // 加载当前标签页数据（每次切换都刷新，确保实时性）
+                loadActiveTabData() {
+                    if (!this.currentChildId) return;
+                    if (this.activeTab === 'points') {
+                        this.loadPoints();
+                    } else if (this.activeTab === 'evaluation') {
+                        this.loadEvaluations();
+                    } else if (this.activeTab === 'redemptions') {
+                        this.loadRedemptions();
+                    } else if (this.activeTab === 'messages') {
+                        this.loadMessages();
+                    }
+                },
+
+                // 格式化时间
+                formatDateTime(time) {
+                    if (!time) return '--';
+                    const d = new Date(time);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const hh = String(d.getHours()).padStart(2, '0');
+                    const mm = String(d.getMinutes()).padStart(2, '0');
+                    return `${y}-${m}-${day} ${hh}:${mm}`;
+                },
+
+                // 登出
+                logout() {
+                    logout();
+                },
+
+                // 错误提示
+                showError(msg) {
+                    if (typeof alert !== 'undefined') {
+                        alert(msg);
+                    } else {
+                        console.warn('错误:', msg);
+                    }
+                },
+
+                // 滚动到消息底部
+                scrollToBottom() {
+                    const el = this.$refs.messageContainer;
+                    if (el) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                }
+            },
+            mounted() {
+                this.checkLogin();
+                this.loadChildren();
+            }
+        }).mount('#app');
+    </script>
+</html>

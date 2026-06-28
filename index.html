@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 · 校园文明能量站</title>
+    <link href="/lib/fontawesome.min.css" rel="stylesheet">
+    <script src="/lib/tailwind.min.js"></script>
+    <script defer src="/lib/vue.min.js"></script>
+    <script defer src="/lib/common.js"></script>
+    <link href="/lib/fonts.css" rel="stylesheet">
+    <style>
+        [v-cloak] { display: none !important; }
+        :root {
+            --ink: #1a1410;
+            --cream: #faf6ef;
+            --amber: #d97706;
+            --amber-deep: #92400e;
+            --emerald: #059669;
+            --ruby: #be123c;
+            --teal: #0d9488;
+        }
+        * { font-family: 'Noto Sans SC', sans-serif; }
+        .font-display { font-family: 'Fraunces', serif; font-optical-sizing: auto; }
+        body {
+            background: var(--cream);
+            background-image:
+                radial-gradient(at 15% 20%, rgba(217, 119, 6, 0.08) 0px, transparent 50%),
+                radial-gradient(at 85% 80%, rgba(5, 150, 105, 0.06) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(190, 18, 60, 0.04) 0px, transparent 50%);
+            min-height: 100vh;
+        }
+        /* 噪点纹理 */
+        .grain::before {
+            content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+            opacity: 0.4;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
+        }
+        /* 浮动光斑 */
+        .blob {
+            position: absolute; border-radius: 50%; filter: blur(60px);
+            animation: float 12s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -40px) scale(1.1); }
+            66% { transform: translate(-20px, 30px) scale(0.95); }
+        }
+        /* 入场动画 */
+        .enter-up { animation: enterUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+        @keyframes enterUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .enter-delay-1 { animation-delay: 0.1s; }
+        .enter-delay-2 { animation-delay: 0.2s; }
+        .enter-delay-3 { animation-delay: 0.3s; }
+        .enter-delay-4 { animation-delay: 0.4s; }
+
+        /* 输入框聚焦动效 */
+        .field-wrap {
+            position: relative;
+            transition: transform 0.3s ease;
+        }
+        .field-wrap:focus-within { transform: translateX(4px); }
+        .field-input {
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(8px);
+        }
+        .field-input:focus {
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12);
+            border-color: var(--amber);
+        }
+
+        /* 主按钮 */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--amber) 0%, var(--amber-deep) 100%);
+            box-shadow: 0 8px 24px -8px rgba(217, 119, 6, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px -8px rgba(217, 119, 6, 0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+        }
+        .btn-primary:active { transform: translateY(0); }
+
+        /* 角色卡片 */
+        .role-chip {
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(8px);
+        }
+        .role-chip:hover {
+            transform: translateY(-3px) scale(1.03);
+        }
+        .role-chip.active {
+            transform: scale(1.05);
+        }
+
+        /* 装饰性边框 */
+        .deco-border {
+            position: relative;
+        }
+        .deco-border::before {
+            content: ''; position: absolute; inset: -1px; border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(217,119,6,0.3), rgba(5,150,105,0.2), rgba(190,18,60,0.2));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor; mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        /* 标签下划线动画 */
+        .tab-underline {
+            position: relative;
+        }
+        .tab-underline::after {
+            content: ''; position: absolute; bottom: -4px; left: 50%;
+            width: 0; height: 2px; background: var(--amber);
+            transition: all 0.3s ease; transform: translateX(-50%);
+        }
+        .tab-underline:hover::after { width: 100%; }
+    </style>
+</head>
+<body class="grain">
+    <div id="app" v-cloak class="min-h-screen flex items-center justify-center p-4 md:p-8 relative overflow-hidden">
+
+        <!-- 背景浮动光斑 -->
+        <div class="blob bg-amber-300/30 w-72 h-72 top-10 left-10"></div>
+        <div class="blob bg-emerald-300/20 w-96 h-96 bottom-10 right-10" style="animation-delay: -4s;"></div>
+        <div class="blob bg-rose-300/20 w-64 h-64 top-1/2 left-1/2" style="animation-delay: -8s;"></div>
+
+        <div class="relative z-10 w-full max-w-5xl grid lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+
+            <!-- 左侧：品牌叙事区（大屏可见） -->
+            <div class="hidden lg:block enter-up">
+                <div class="flex items-center gap-3 mb-8">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                        <i class="fa-solid fa-leaf text-white text-xl"></i>
+                    </div>
+                    <span class="font-display text-2xl font-semibold text-stone-800">文明能量站</span>
+                </div>
+
+                <h1 class="font-display text-6xl xl:text-7xl font-black leading-[0.95] text-stone-900 mb-6 tracking-tight">
+                    点燃<span class="italic text-amber-600">每一份</span><br>
+                    文明微光
+                </h1>
+
+                <p class="text-lg text-stone-600 leading-relaxed mb-10 max-w-md">
+                    以积分激励行为，以数据见证成长。<br>
+                    让校园里的每一次善举，都被看见、被记录、被嘉奖。
+                </p>
+
+                <!-- 数据点缀 -->
+                <div class="flex gap-8">
+                    <div>
+                        <div class="font-display text-3xl font-bold text-stone-900">3<span class="text-amber-600">+</span></div>
+                        <div class="text-sm text-stone-500 mt-1">角色协同</div>
+                    </div>
+                    <div class="w-px bg-stone-300"></div>
+                    <div>
+                        <div class="font-display text-3xl font-bold text-stone-900">5<span class="text-emerald-600">维</span></div>
+                        <div class="text-sm text-stone-500 mt-1">五育评价</div>
+                    </div>
+                    <div class="w-px bg-stone-300"></div>
+                    <div>
+                        <div class="font-display text-3xl font-bold text-stone-900">∞</div>
+                        <div class="text-sm text-stone-500 mt-1">成长可能</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：登录卡片 -->
+            <div class="enter-up enter-delay-2">
+                <div class="deco-border bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl shadow-stone-900/10 overflow-hidden">
+
+                    <!-- 卡片头部 -->
+                    <div class="px-8 pt-10 pb-2 text-center">
+                        <div class="lg:hidden w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-amber-500/30">
+                            <i class="fa-solid fa-leaf text-white text-2xl"></i>
+                        </div>
+                        <h2 class="font-display text-3xl font-bold text-stone-900">校园管理系统</h2>
+                        <p class="text-stone-500 mt-2 text-sm">登录以进入你的能量空间</p>
+                    </div>
+
+                    <!-- 表单 -->
+                    <div class="p-8 pt-6">
+                        <form @submit.prevent="login">
+                            <!-- 用户名 -->
+                            <div class="mb-5 enter-up enter-delay-3">
+                                <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 ml-1">用户名 / 子女学号</label>
+                                <div class="field-wrap">
+                                    <input
+                                        v-model.trim="username"
+                                        type="text"
+                                        autocomplete="username"
+                                        placeholder="请输入用户名 / 子女学号"
+                                        class="field-input w-full px-5 py-4 border border-stone-200 rounded-2xl text-stone-800 placeholder-stone-400 focus:outline-none"
+                                        required
+                                    >
+                                </div>
+                            </div>
+
+                            <!-- 密码 -->
+                            <div class="mb-6 enter-up enter-delay-4">
+                                <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 ml-1">密码 / 家长密码</label>
+                                <div class="field-wrap relative">
+                                    <input
+                                        v-model="password"
+                                        :type="showPassword ? 'text' : 'password'"
+                                        autocomplete="current-password"
+                                        placeholder="请输入密码 / 家长密码"
+                                        class="field-input w-full px-5 py-4 pr-14 border border-stone-200 rounded-2xl text-stone-800 placeholder-stone-400 focus:outline-none"
+                                        required
+                                    >
+                                    <button
+                                        type="button"
+                                        @click="showPassword = !showPassword"
+                                        class="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl flex items-center justify-center text-stone-400 hover:text-amber-600 hover:bg-amber-50 transition"
+                                    >
+                                        <i :class="showPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 错误提示 -->
+                            <transition name="shake">
+                                <div v-if="errorMsg" class="mb-5 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 text-sm flex items-center gap-3">
+                                    <i class="fa-solid fa-circle-exclamation text-rose-500"></i>
+                                    <span>{{ errorMsg }}</span>
+                                </div>
+                            </transition>
+
+                            <!-- 提交按钮 -->
+                            <button
+                                type="submit"
+                                :disabled="loading"
+                                class="btn-primary w-full text-white py-4 rounded-2xl font-semibold text-base flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                            >
+                                <template v-if="loading">
+                                    <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                    <span>正在进入...</span>
+                                </template>
+                                <template v-else>
+                                    <span>登 录</span>
+                                    <i class="fa-solid fa-arrow-right-long"></i>
+                                </template>
+                            </button>
+                        </form>
+
+                        <!-- 演示账号 -->
+                        <div class="mt-8 pt-6 border-t border-stone-200/60">
+                            <p class="text-center text-xs text-stone-400 uppercase tracking-wider mb-4">演示账号 · 一键填充</p>
+                            <div class="grid grid-cols-4 gap-3">
+                                <button type="button" @click="fillTestAccount('admin', 'admin123')"
+                                    class="role-chip active group p-4 bg-rose-50/80 border border-rose-200/60 rounded-2xl text-center hover:border-rose-400">
+                                    <div class="w-10 h-10 mx-auto rounded-xl bg-rose-500 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                        <i class="fa-solid fa-user-shield text-white"></i>
+                                    </div>
+                                    <div class="text-xs font-bold text-rose-700">管理员</div>
+                                </button>
+                                <button type="button" @click="fillTestAccount('teacher', 'teacher123')"
+                                    class="role-chip group p-4 bg-teal-50/80 border border-teal-200/60 rounded-2xl text-center hover:border-teal-400">
+                                    <div class="w-10 h-10 mx-auto rounded-xl bg-teal-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                        <i class="fa-solid fa-chalkboard-user text-white"></i>
+                                    </div>
+                                    <div class="text-xs font-bold text-teal-700">教师</div>
+                                </button>
+                                <button type="button" @click="fillTestAccount('student', 'student123')"
+                                    class="role-chip group p-4 bg-emerald-50/80 border border-emerald-200/60 rounded-2xl text-center hover:border-emerald-400">
+                                    <div class="w-10 h-10 mx-auto rounded-xl bg-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                        <i class="fa-solid fa-user-graduate text-white"></i>
+                                    </div>
+                                    <div class="text-xs font-bold text-emerald-700">学生</div>
+                                </button>
+                                <button type="button" @click="fillTestAccount('parent', 'parent123')"
+                                    class="role-chip group p-4 bg-amber-50/80 border border-amber-200/60 rounded-2xl text-center hover:border-amber-400">
+                                    <div class="w-10 h-10 mx-auto rounded-xl bg-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                                        <i class="fa-solid fa-family text-white"></i>
+                                    </div>
+                                    <div class="text-xs font-bold text-amber-700">家长</div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 底部签名 -->
+                <p class="text-center text-xs text-stone-400 mt-6 font-display italic">— 让每一份善意都有回响 —</p>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .shake-enter-active { animation: shake 0.4s; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const { createApp } = Vue;
+
+            createApp({
+                data() {
+                return {
+                    username: '',
+                    password: '',
+                    showPassword: false,
+                    loading: false,
+                    errorMsg: ''
+                }
+            },
+            async mounted() {
+                // 检查是否已登录，已登录则自动跳转
+                try {
+                    const response = await fetch('/api/auth/me', { credentials: 'include' });
+                    const data = await response.json();
+                    if (data.code === 200) {
+                        const roleRoutes = { 1: '/admin.html', 2: '/teacher.html', 3: '/student.html', 4: '/parent.html' };
+                        const target = roleRoutes[data.data.role_id];
+                        if (target) {
+                            window.location.href = target;
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // 未登录，正常显示登录表单
+                }
+            },
+            methods: {
+                    async login() {
+                        if (!this.username || !this.password) {
+                            this.errorMsg = '请输入用户名和密码';
+                            return;
+                        }
+
+                        this.loading = true;
+                        this.errorMsg = '';
+
+                        try {
+                            // 先尝试普通登录
+                            let response = await fetch('/api/auth/login', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ username: this.username, password: this.password })
+                            });
+                            let data = await response.json();
+
+                            if (data.code === 200) {
+                                localStorage.setItem('userInfo', JSON.stringify(data.data.user));
+                                const roleRoutes = { 1: '/admin.html', 2: '/teacher.html', 3: '/student.html', 4: '/parent.html' };
+                                window.location.href = roleRoutes[data.data.user.role_id] || '/student.html';
+                                return;
+                            }
+
+                            // 普通登录失败，尝试家长登录
+                            response = await fetch('/api/parent/login', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ username: this.username, parent_password: this.password })
+                            });
+                            data = await response.json();
+
+                            if (data.code === 200) {
+                                localStorage.setItem('userInfo', JSON.stringify({ role_id: 4, ...data.data }));
+                                window.location.href = '/parent.html';
+                                return;
+                            }
+
+                            // 两种登录都失败
+                            this.errorMsg = data.msg || '用户名或密码错误';
+                        } catch (error) {
+                            console.error('Login error:', error);
+                            this.errorMsg = '网络错误，请稍后重试';
+                        } finally {
+                            this.loading = false;
+                        }
+                    },
+
+                    fillTestAccount(username, password) {
+                        this.username = username;
+                        this.password = password;
+                        this.errorMsg = '';
+                    }
+                }
+            }).mount('#app');
+        });
+    </script>
+</body>
+</html>
