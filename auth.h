@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <ctime>
 #include <cstdlib>
+#include <random>
 #include <sstream>
 #include <iomanip>
 #include "json.hpp"
@@ -12,16 +13,41 @@
 #include "logger.h"
 #include "models.h"
 #include "config.h"
+#include "sha256.h"
 
 using json = nlohmann::json;
 using namespace std;
 
-// CORS 头设置
+// 安全修复 V9：CORS 头设置 —— 仅在请求 Origin 命中白名单时回显
 inline void set_cors_headers(httplib::Response& res) {
-    res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie");
-    res.set_header("Access-Control-Allow-Credentials", "true");
+    res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+    if (g_config.cors_allowed_origins.empty()) {
+        // 未配置白名单：不回显 Origin，禁止跨域凭据
+        return;
+    }
+    // 没有 Origin 头视为同源，不回显
+    auto it = res.headers.find("Origin");
+    // httplib Response 通常没有 Origin；尝试从 Request 读取由路由层注入
+    // 此处保留默认不回显；具体 Origin 回显在 set_cors_headers(req, res) 重载中处理
+}
+
+// 安全修复 V9：CORS —— 基于请求 Origin 反射白名单
+inline void set_cors_headers(const httplib::Request& req, httplib::Response& res) {
+    res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+    if (g_config.cors_allowed_origins.empty()) return;
+    auto it = req.headers.find("Origin");
+    if (it == req.headers.end()) return;
+    const std::string& origin = it->second;
+    for (const auto& allowed : g_config.cors_allowed_origins) {
+        if (origin == allowed) {
+            res.set_header("Access-Control-Allow-Origin", origin);
+            res.set_header("Vary", "Origin");
+            res.set_header("Access-Control-Allow-Credentials", "true");
+            return;
+        }
+    }
 }
 
 // 请求日志
@@ -55,33 +81,109 @@ inline std::string get_cookie_value(const httplib::Request& req, const std::stri
     return cookie_header.substr(pos, end - pos);
 }
 
-// 设置认证 cookie 的辅助函数
+// 安全修复 V11：Cookie 加 Secure 属性（仅 HTTPS 下开启）
 inline void set_session_cookie(httplib::Response& res, const std::string& session_id, int max_age) {
     std::string cookie = "sid=" + session_id + "; HttpOnly; Path=/; Max-Age=" +
                          std::to_string(max_age) + "; SameSite=Lax";
+    if (g_config.cookie_secure) cookie += "; Secure";
     res.set_header("Set-Cookie", cookie);
 }
 
 // 清除认证 cookie
 inline void clear_session_cookie(httplib::Response& res) {
-    res.set_header("Set-Cookie", "sid=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax");
+    std::string cookie = "sid=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax";
+    if (g_config.cookie_secure) cookie += "; Secure";
+    res.set_header("Set-Cookie", cookie);
 }
 
 // ====== Session 管理函数 ======
 
-// 生成 64 字符随机十六进制会话 ID
+// 安全修复 V4：生成 64 字符随机十六进制会话 ID，使用 CSPRNG
 inline std::string generate_session_id() {
-    srand(static_cast<unsigned int>(time(nullptr)));
-    std::ostringstream oss;
-    for (int i = 0; i < 32; ++i) {
-        oss << std::hex << (rand() % 256);
+    return generate_random_hex(32); // 32 字节 = 64 hex 字符
+}
+
+// ====== 安全修复 V8：登录失败锁定（内存计数，按用户名 + 客户端 IP 维度）======
+struct LoginAttempt {
+    int fails = 0;
+    time_t locked_until = 0;
+};
+inline std::map<std::string, LoginAttempt>& login_attempts() {
+    static std::map<std::string, LoginAttempt> m;
+    return m;
+}
+
+// 返回 true 表示当前允许尝试登录（未被锁定）
+inline bool login_can_try(const std::string& key) {
+    auto& m = login_attempts();
+    auto it = m.find(key);
+    if (it == m.end()) return true;
+    if (it->second.locked_until > time(nullptr)) return false;
+    return true;
+}
+
+// 登录失败累计 +1，超过阈值则锁定
+inline void login_record_fail(const std::string& key) {
+    auto& m = login_attempts();
+    auto& a = m[key];
+    a.fails++;
+    if (a.fails >= g_config.max_login_attempts) {
+        a.locked_until = time(nullptr) + g_config.lockout_minutes * 60;
+        a.fails = 0; // 锁定后清零，解锁后重新计数
     }
-    std::string result = oss.str();
-    // 补齐到 64 字符
-    while (result.size() < 64) {
-        result += "0";
+}
+
+// 登录成功清除计数
+inline void login_record_success(const std::string& key) {
+    login_attempts().erase(key);
+}
+
+inline std::string login_client_key(const httplib::Request& req, const std::string& username) {
+    std::string ip;
+    auto it = req.headers.find("X-Forwarded-For");
+    if (it != req.headers.end()) {
+        ip = it->second;
+        auto comma = ip.find(',');
+        if (comma != std::string::npos) ip = ip.substr(0, comma);
+    } else {
+        auto rit = req.headers.find("REMOTE_ADDR");
+        if (rit != req.headers.end()) ip = rit->second;
     }
-    return result.substr(0, 64);
+    if (ip.empty()) ip = "unknown";
+    return ip + "|" + username;
+}
+
+// ====== 安全修复 V10：CSRF Token（双重提交 Cookie）======
+// 校验：请求头 X-CSRF-Token 与 Cookie 中 csrf_token 相等且非空
+inline bool csrf_check(const httplib::Request& req) {
+    if (!g_config.csrf_enabled) return true;
+    std::string cookie_token = get_cookie_value(req, "csrf_token");
+    if (cookie_token.empty()) return false;
+    auto it = req.headers.find("X-CSRF-Token");
+    if (it == req.headers.end()) return false;
+    if (it->second.size() != cookie_token.size()) return false;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < cookie_token.size(); i++) diff |= (unsigned char)(cookie_token[i] ^ it->second[i]);
+    return diff == 0;
+}
+
+// 生成新 CSRF Token 并写入 Cookie
+inline std::string issue_csrf_token(httplib::Response& res) {
+    std::string token = generate_random_hex(16);
+    std::string cookie = "csrf_token=" + token + "; HttpOnly; Path=/; SameSite=Lax";
+    if (g_config.cookie_secure) cookie += "; Secure";
+    res.set_header("Set-Cookie", cookie);
+    return token;
+}
+
+// 便捷中间件：对状态变更类请求（POST/PUT/DELETE）做 CSRF 校验
+inline bool require_csrf(const httplib::Request& req, httplib::Response& res) {
+    if (req.method == "GET" || req.method == "HEAD" || req.method == "OPTIONS") return true;
+    if (csrf_check(req)) return true;
+    set_cors_headers(req, res);
+    res.status = 403;
+    res.set_content(R"({"code":403,"msg":"CSRF token 校验失败"})", "application/json");
+    return false;
 }
 
 // 创建会话并存入 SQLite

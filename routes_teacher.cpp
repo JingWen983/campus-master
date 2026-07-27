@@ -25,15 +25,13 @@ void register_teacher_routes(httplib::Server& svr) {
         }
 
         json classes_arr = json::array();
-        char sql[512];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT c.id, c.name, c.grade, c.grade_code, c.class_code, c.head_teacher, c.description "
             "FROM classes c "
             "JOIN teacher_classes tc ON c.id = tc.class_id "
-            "WHERE tc.teacher_id = '%s' "
+            "WHERE tc.teacher_id = ? "
             "ORDER BY c.id",
-            db.escapeString(teacher_id).c_str());
-        json result = db.query(sql);
+            {SqliteDb::Bind(teacher_id)});
         for (const auto& row : result) {
             json item;
             item["id"] = row.value("id", 0);
@@ -65,11 +63,9 @@ void register_teacher_routes(httplib::Server& svr) {
         // 获取教师绑定的班级名称集合
         std::vector<std::string> bound_class_names;
         if (!teacher_id.empty()) {
-            char tc_sql[512];
-            snprintf(tc_sql, sizeof(tc_sql),
-                "SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s'",
-                db.escapeString(teacher_id).c_str());
-            json tc_result = db.query(tc_sql);
+            json tc_result = db.query_bind(
+                "SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?",
+                {SqliteDb::Bind(teacher_id)});
             for (const auto& tc_row : tc_result) {
                 if (tc_row.contains("name") && !tc_row["name"].is_null()) {
                     bound_class_names.push_back(tc_row["name"].get<std::string>());
@@ -111,6 +107,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -130,7 +128,8 @@ void register_teacher_routes(httplib::Server& svr) {
 
             // 创建新学生 - 生成字符串 ID
             string new_id = generate_user_id(3, grade_code, class_code);
-            string default_password = "123456";
+            // 安全修复 V13：默认密码由服务端生成随机强密码并返回，不再硬编码 123456
+            std::string default_password = generate_random_password();
             User new_user = {
                 new_id,
                 studentId,
@@ -154,7 +153,8 @@ void register_teacher_routes(httplib::Server& svr) {
                     {"studentId", studentId},
                     {"name", name},
                     {"className", className},
-                    {"points", points}
+                    {"points", points},
+                    {"initial_password", default_password}
                 }}
             };
 
@@ -172,6 +172,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -204,12 +206,10 @@ void register_teacher_routes(httplib::Server& svr) {
                 student_it->points = points;
             }
 
-            char sql[1024];
-            snprintf(sql, sizeof(sql),
-                "UPDATE users SET name = '%s', className = '%s', points = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'",
-                db.escapeString(name).c_str(), db.escapeString(className).c_str(), student_it->points,
-                db.escapeString(student_id).c_str());
-            db.execute(sql);
+            db.execute_bind(
+                "UPDATE users SET name = ?, className = ?, points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                {SqliteDb::Bind(name), SqliteDb::Bind(className),
+                 SqliteDb::Bind((long long)student_it->points), SqliteDb::Bind(student_id)});
 
             update_user_index(*student_it);
 
@@ -239,6 +239,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -275,6 +277,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "points:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -336,16 +340,12 @@ void register_teacher_routes(httplib::Server& svr) {
             points_records.push_back(new_record);
 
             // 保存积分记录到数据库
-            char record_sql[2048];
-            snprintf(record_sql, sizeof(record_sql),
-                "INSERT INTO points_records (student_id, points, reason, operator_id, created_at) VALUES ('%s', %d, '%s', '%s', '%s')",
-                db.escapeString(student_id).c_str(),
-                type == "add" ? points : -points,
-                db.escapeString(reason).c_str(),
-                db.escapeString(current_user_id).c_str(),
-                get_current_time().c_str()
-            );
-            db.execute(record_sql);
+            db.execute_bind(
+                "INSERT INTO points_records (student_id, points, reason, operator_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                {SqliteDb::Bind(student_id),
+                 SqliteDb::Bind((long long)(type == "add" ? points : -points)),
+                 SqliteDb::Bind(reason), SqliteDb::Bind(current_user_id),
+                 SqliteDb::Bind(get_current_time())});
 
             response = {
                 {"code", 200},
@@ -385,19 +385,16 @@ void register_teacher_routes(httplib::Server& svr) {
 
         json records = json::array();
 
-        char sql[2048];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT pr.id, pr.student_id, pr.points, pr.reason, pr.operator_id, pr.created_at, "
             "s.name as student_name, s.className, "
             "o.name as operator_name "
             "FROM points_records pr "
             "LEFT JOIN users s ON pr.student_id = s.id "
             "LEFT JOIN users o ON pr.operator_id = o.id "
-            "WHERE s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s') "
+            "WHERE s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?) "
             "ORDER BY pr.created_at DESC",
-            db.escapeString(teacher_id).c_str());
-
-        json result = db.query(sql);
+            {SqliteDb::Bind(teacher_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);
@@ -470,6 +467,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "evaluation:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -502,16 +501,12 @@ void register_teacher_routes(httplib::Server& svr) {
             for (const auto& dim : {1, 2, 3, 4, 5}) {
                 int score = scores.value(std::to_string(dim), 0);
 
-                char eval_sql[2048];
-                snprintf(eval_sql, sizeof(eval_sql),
-                    "INSERT INTO evaluations (student_id, dimension_id, score, comment, evaluator_id, created_at, updated_at) VALUES ('%s', %d, %d, '%s', '%s', '%s', '%s')",
-                    db.escapeString(student_id).c_str(), dim, score,
-                    db.escapeString(comment).c_str(),
-                    db.escapeString(current_user_id).c_str(),
-                    get_current_time().c_str(),
-                    get_current_time().c_str()
-                );
-                db.execute(eval_sql);
+                db.execute_bind(
+                    "INSERT INTO evaluations (student_id, dimension_id, score, comment, evaluator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    {SqliteDb::Bind(student_id), SqliteDb::Bind((long long)dim),
+                     SqliteDb::Bind((long long)score), SqliteDb::Bind(comment),
+                     SqliteDb::Bind(current_user_id), SqliteDb::Bind(get_current_time()),
+                     SqliteDb::Bind(get_current_time())});
 
                 json eval;
                 eval["id"] = dim;
@@ -564,12 +559,10 @@ void register_teacher_routes(httplib::Server& svr) {
         // 仅统计教师绑定班级的学生
         for (const auto& user : users) {
             if (user.role_id == 3) {
-                char tc_sql[512];
-                snprintf(tc_sql, sizeof(tc_sql),
+                json tc_result = db.query_bind(
                     "SELECT 1 FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id "
-                    "WHERE tc.teacher_id = '%s' AND c.name = '%s' LIMIT 1",
-                    db.escapeString(teacher_id).c_str(), db.escapeString(user.className).c_str());
-                json tc_result = db.query(tc_sql);
+                    "WHERE tc.teacher_id = ? AND c.name = ? LIMIT 1",
+                    {SqliteDb::Bind(teacher_id), SqliteDb::Bind(user.className)});
                 if (!tc_result.empty()) {
                     student_count++;
                 }
@@ -577,26 +570,22 @@ void register_teacher_routes(httplib::Server& svr) {
         }
 
         // 查询今日积分变动总数（限定绑定班级学生）
-        char today_sql[1024];
-        snprintf(today_sql, sizeof(today_sql),
+        json today_result = db.query_bind(
             "SELECT COALESCE(SUM(pr.points), 0) as total FROM points_records pr "
             "LEFT JOIN users s ON pr.student_id = s.id "
-            "WHERE pr.created_at >= '%s 00:00:00' "
-            "AND s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s')",
-            today_str, db.escapeString(teacher_id).c_str());
-        json today_result = db.query(today_sql);
+            "WHERE pr.created_at >= ? "
+            "AND s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?)",
+            {SqliteDb::Bind(std::string(today_str) + " 00:00:00"), SqliteDb::Bind(teacher_id)});
         if (!today_result.empty()) {
             today_points = today_result[0].value("total", 0);
         }
 
         // 查询待评价学生数（限定绑定班级学生，没有评价记录的学生）
-        char pending_sql[1024];
-        snprintf(pending_sql, sizeof(pending_sql),
+        json pending_result = db.query_bind(
             "SELECT COUNT(*) as cnt FROM users WHERE role_id=3 "
-            "AND className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s') "
+            "AND className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?) "
             "AND id NOT IN (SELECT DISTINCT student_id FROM evaluations)",
-            db.escapeString(teacher_id).c_str());
-        json pending_result = db.query(pending_sql);
+            {SqliteDb::Bind(teacher_id)});
         if (!pending_result.empty()) {
             pending_evaluations = pending_result[0].value("cnt", 0);
         }
@@ -627,16 +616,14 @@ void register_teacher_routes(httplib::Server& svr) {
 
         // 1. 班级积分统计：按绑定班级分组，计算每个班级所有学生的积分总和
         json classPoints = json::array();
-        char classPointsSql[1024];
-        snprintf(classPointsSql, sizeof(classPointsSql),
+        json classResult = db.query_bind(
             "SELECT className, SUM(points) as totalPoints "
             "FROM users "
             "WHERE role_id = 3 AND className IS NOT NULL AND className != '' "
-            "AND className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s') "
+            "AND className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?) "
             "GROUP BY className "
             "ORDER BY totalPoints DESC",
-            db.escapeString(teacher_id).c_str());
-        json classResult = db.query(classPointsSql);
+            {SqliteDb::Bind(teacher_id)});
         for (const auto& row : classResult) {
             json item;
             item["className"] = row.value("className", "");
@@ -689,13 +676,10 @@ void register_teacher_routes(httplib::Server& svr) {
             }
             snprintf(monthEnd, sizeof(monthEnd), "%04d-%02d-01 00:00:00", nextYear, nextMonth);
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            json result = db.query_bind(
                 "SELECT COALESCE(SUM(points), 0) as monthPoints FROM points_records "
-                "WHERE created_at >= '%s' AND created_at < '%s'",
-                monthStart, monthEnd);
-
-            json result = db.query(sql);
+                "WHERE created_at >= ? AND created_at < ?",
+                {SqliteDb::Bind(monthStart), SqliteDb::Bind(monthEnd)});
             int monthPoints = 0;
             if (!result.empty()) {
                 monthPoints = result[0].value("monthPoints", 0);
@@ -753,18 +737,15 @@ void register_teacher_routes(httplib::Server& svr) {
 
         json evaluations_json = json::array();
 
-        char sql[2048];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT e.id, e.student_id, e.dimension_id, e.score, e.comment, e.evaluator_id, e.created_at, "
             "s.name as student_name, s.className, u.name as evaluator_name "
             "FROM evaluations e "
             "LEFT JOIN users s ON e.student_id = s.id "
             "LEFT JOIN users u ON e.evaluator_id = u.id "
-            "WHERE s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s') "
+            "WHERE s.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?) "
             "ORDER BY e.created_at DESC",
-            db.escapeString(teacher_id).c_str());
-
-        json result = db.query(sql);
+            {SqliteDb::Bind(teacher_id)});
 
         unordered_map<int, string> dimension_names = {
             {1, "德育"},
@@ -802,6 +783,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "evaluation:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -810,12 +793,9 @@ void register_teacher_routes(httplib::Server& svr) {
             int score = req_json.value("score", 0);
             string comment = req_json.value("comment", "");
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
-                "UPDATE evaluations SET score = %d, comment = '%s', updated_at = CURRENT_TIMESTAMP WHERE id = %d",
-                score, db.escapeString(comment).c_str(), eval_id);
-
-            if (db.execute(sql)) {
+            if (db.execute_bind(
+                "UPDATE evaluations SET score = ?, comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                {SqliteDb::Bind((long long)score), SqliteDb::Bind(comment), SqliteDb::Bind((long long)eval_id)})) {
                 response = {{"code", 200}, {"msg", "评价修改成功"}};
             } else {
                 response = {{"code", 404}, {"msg", "评价不存在"}};
@@ -835,15 +815,15 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "evaluation:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
             int eval_id = stoi(req.matches[1]);
 
-            char sql[256];
-            snprintf(sql, sizeof(sql), "DELETE FROM evaluations WHERE id = %d", eval_id);
-
-            if (db.execute(sql)) {
+            if (db.execute_bind("DELETE FROM evaluations WHERE id = ?",
+                {SqliteDb::Bind((long long)eval_id)})) {
                 response = {{"code", 200}, {"msg", "评价删除成功"}};
             } else {
                 response = {{"code", 404}, {"msg", "评价不存在"}};
@@ -863,6 +843,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         int success_count = 0;
@@ -940,7 +922,8 @@ void register_teacher_routes(httplib::Server& svr) {
                 string student_id = row[0];
                 string name = row[1];
                 string className = row[2];
-                string password = row.size() >= 4 ? row[3] : "123456"; // 默认密码
+                // 安全修复 V13：批量导入未提供密码时随机生成，不再硬编码 123456
+                string password = row.size() >= 4 ? row[3] : generate_random_password();
 
                 if (student_id.empty() || name.empty()) {
                     fail_count++;
@@ -985,7 +968,9 @@ void register_teacher_routes(httplib::Server& svr) {
         } catch (json::parse_error& e) {
             response = {{"code", 400}, {"msg", "数据格式错误"}};
         } catch (exception& e) {
-            response = {{"code", 500}, {"msg", string("导入失败: ") + e.what()}};
+            // 安全修复 V15：不向客户端回显内部异常细节
+            Logger::error(string("学生批量导入失败: ") + e.what());
+            response = {{"code", 500}, {"msg", "导入失败"}};
         }
 
         res.set_content(response.dump(), "application/json");
@@ -1009,17 +994,14 @@ void register_teacher_routes(httplib::Server& svr) {
         json messages = json::array();
 
         try {
-        char sql[2048];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT pm.id, pm.student_id, pm.sender_type, pm.sender_id, pm.content, pm.reply_to, pm.created_at, pm.read_status, "
             "u.name as student_name, u.className as class_name "
             "FROM parent_messages pm "
             "LEFT JOIN users u ON pm.student_id = u.id "
-            "WHERE u.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s') "
+            "WHERE u.className IN (SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?) "
             "ORDER BY pm.read_status ASC, pm.created_at DESC",
-            db.escapeString(teacher_id).c_str());
-
-        json result = db.query(sql);
+            {SqliteDb::Bind(teacher_id)});
         for (const auto& row : result) {
             json msg;
             msg["id"] = row.value("id", 0);
@@ -1053,6 +1035,8 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -1069,10 +1053,9 @@ void register_teacher_routes(httplib::Server& svr) {
             }
 
             // 1. 从原留言获取 student_id
-            char query_sql[256];
-            snprintf(query_sql, sizeof(query_sql),
-                "SELECT student_id FROM parent_messages WHERE id = %d", message_id);
-            json query_result = db.query(query_sql);
+            json query_result = db.query_bind(
+                "SELECT student_id FROM parent_messages WHERE id = ?",
+                {SqliteDb::Bind((long long)message_id)});
             if (query_result.empty()) {
                 response = {{"code", 404}, {"msg", "原留言不存在"}};
                 res.set_content(response.dump(), "application/json");
@@ -1081,14 +1064,11 @@ void register_teacher_routes(httplib::Server& svr) {
             string student_id = query_result[0].value("student_id", "");
 
             // 2. 插入教师回复
-            char insert_sql[2048];
-            snprintf(insert_sql, sizeof(insert_sql),
+            if (!db.execute_bind(
                 "INSERT INTO parent_messages (student_id, sender_type, sender_id, content, reply_to, created_at, read_status) "
-                "VALUES ('%s', 'teacher', '%s', '%s', %d, '%s', 1)",
-                db.escapeString(student_id).c_str(), db.escapeString(teacher_id).c_str(),
-                db.escapeString(content).c_str(), message_id, get_current_time().c_str());
-
-            if (!db.execute(insert_sql)) {
+                "VALUES (?, 'teacher', ?, ?, ?, ?, 1)",
+                {SqliteDb::Bind(student_id), SqliteDb::Bind(teacher_id), SqliteDb::Bind(content),
+                 SqliteDb::Bind((long long)message_id), SqliteDb::Bind(get_current_time())})) {
                 Logger::error("教师 " + teacher_id + " 回复留言 " + to_string(message_id) + " 失败");
                 response = {{"code", 500}, {"msg", "回复失败"}};
                 res.set_content(response.dump(), "application/json");
@@ -1096,10 +1076,8 @@ void register_teacher_routes(httplib::Server& svr) {
             }
 
             // 3. 将原留言标记为已读
-            char update_sql[256];
-            snprintf(update_sql, sizeof(update_sql),
-                "UPDATE parent_messages SET read_status = 1 WHERE id = %d", message_id);
-            db.execute(update_sql);
+            db.execute_bind("UPDATE parent_messages SET read_status = 1 WHERE id = ?",
+                {SqliteDb::Bind((long long)message_id)});
 
             Logger::info("教师 " + teacher_id + " 回复了留言 " + to_string(message_id));
 
@@ -1122,16 +1100,15 @@ void register_teacher_routes(httplib::Server& svr) {
         if (!check_permission_middleware(req, res, "student:manage")) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
             int message_id = stoi(req.matches[1]);
 
-            char sql[256];
-            snprintf(sql, sizeof(sql),
-                "UPDATE parent_messages SET read_status = 1 WHERE id = %d", message_id);
-
-            if (db.execute(sql)) {
+            if (db.execute_bind("UPDATE parent_messages SET read_status = 1 WHERE id = ?",
+                {SqliteDb::Bind((long long)message_id)})) {
                 response = {{"code", 200}, {"msg", "已标记为已读"}};
             } else {
                 response = {{"code", 404}, {"msg", "留言不存在"}};
@@ -1163,8 +1140,7 @@ void register_teacher_routes(httplib::Server& svr) {
 
         json records = json::array();
         // 仅查询教师绑定班级下的学生兑换记录
-        char sql[1024];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT r.id, r.student_id, r.item_id, r.cost, r.created_at, "
             "s.name as student_name, s.className, "
             "m.name as item_name "
@@ -1172,11 +1148,10 @@ void register_teacher_routes(httplib::Server& svr) {
             "LEFT JOIN users s ON r.student_id = s.id "
             "LEFT JOIN mall_items m ON r.item_id = m.id "
             "WHERE s.className IN ("
-            "  SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = '%s'"
+            "  SELECT c.name FROM teacher_classes tc JOIN classes c ON tc.class_id = c.id WHERE tc.teacher_id = ?"
             ") "
             "ORDER BY r.created_at DESC",
-            db.escapeString(teacher_id).c_str());
-        json result = db.query(sql);
+            {SqliteDb::Bind(teacher_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);

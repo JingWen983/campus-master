@@ -70,26 +70,27 @@ bool load_users_from_db() {
     return !users.empty();
 }
 
+// 安全修复 V2：用户相关 SQL 全部改用参数化绑定
 bool save_user_to_db(const User& user) {
-    char sql[2048];
-    snprintf(sql, sizeof(sql),
-        "INSERT OR REPLACE INTO users (id, username, password_hash, role_id, name, className, points) VALUES ('%s', '%s', '%s', %d, '%s', '%s', %d)",
-        db.escapeString(user.id).c_str(), db.escapeString(user.username).c_str(),
-        db.escapeString(user.password_hash).c_str(), user.role_id,
-        db.escapeString(user.name).c_str(), db.escapeString(user.className).c_str(), user.points);
-    return db.execute(sql);
+    return db.execute_bind(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, role_id, name, className, points) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        {SqliteDb::Bind(user.id), SqliteDb::Bind(user.username),
+         SqliteDb::Bind(user.password_hash), SqliteDb::Bind((long long)user.role_id),
+         SqliteDb::Bind(user.name), SqliteDb::Bind(user.className),
+         SqliteDb::Bind((long long)user.points)});
 }
 
 bool delete_user_from_db(const string& user_id) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "DELETE FROM users WHERE id = '%s'", db.escapeString(user_id).c_str());
-    return db.execute(sql);
+    return db.execute_bind(
+        "DELETE FROM users WHERE id = ?",
+        {SqliteDb::Bind(user_id)});
 }
 
 bool update_user_points_in_db(const string& user_id, int points) {
-    char sql[512];
-    snprintf(sql, sizeof(sql), "UPDATE users SET points = %d WHERE id = '%s'", points, db.escapeString(user_id).c_str());
-    return db.execute(sql);
+    return db.execute_bind(
+        "UPDATE users SET points = ? WHERE id = ?",
+        {SqliteDb::Bind((long long)points), SqliteDb::Bind(user_id)});
 }
 
 // 从 u.id 中提取最后一段数字（最后一个 '-' 之后的部分）
@@ -157,17 +158,18 @@ string generate_user_id(int role_id, const string& grade_code, const string& cla
 
 // ====== 索引优化结构 ======
 
-unordered_map<string, User> user_id_map;           // 用户ID到用户的映射
-unordered_map<string, User> user_username_map;  // 用户名到用户的映射
+// 安全修复 V12：索引改为存储 users 向量的下标，避免副本与原数据不一致
+unordered_map<string, size_t> user_id_map;           // 用户ID到 users 下标的映射
+unordered_map<string, size_t> user_username_map;     // 用户名到 users 下标的映射
 unordered_map<int, Role> role_id_map;           // 角色ID到角色的映射
 unordered_map<int, Permission> permission_id_map; // 权限ID到权限的映射
 unordered_map<int, vector<int>> role_permission_map; // 角色ID到权限ID列表的映射
 
 // 初始化索引
 void init_indexes() {
-    for (const auto& user : users) {
-        user_id_map[user.id] = user;
-        user_username_map[user.username] = user;
+    for (size_t i = 0; i < users.size(); i++) {
+        user_id_map[users[i].id] = i;
+        user_username_map[users[i].username] = i;
     }
     for (const auto& role : roles) {
         role_id_map[role.id] = role;
@@ -182,8 +184,13 @@ void init_indexes() {
 
 // 更新用户索引
 void update_user_index(const User& user) {
-    user_id_map[user.id] = user;
-    user_username_map[user.username] = user;
+    for (size_t i = 0; i < users.size(); i++) {
+        if (users[i].id == user.id) {
+            user_id_map[user.id] = i;
+            user_username_map[user.username] = i;
+            return;
+        }
+    }
 }
 
 // 删除用户索引
@@ -192,11 +199,11 @@ void remove_user_index(const string& user_id, const string& username) {
     user_username_map.erase(username);
 }
 
-// 使用索引查找用户
+// 使用索引查找用户（返回 users 向量真实引用）
 User* find_user_by_id(const string& user_id) {
     auto it = user_id_map.find(user_id);
-    if (it != user_id_map.end()) {
-        return &it->second;
+    if (it != user_id_map.end() && it->second < users.size()) {
+        return &users[it->second];
     }
     return nullptr;
 }
@@ -204,8 +211,8 @@ User* find_user_by_id(const string& user_id) {
 // 使用索引查找用户
 User* find_user_by_username(const string& username) {
     auto it = user_username_map.find(username);
-    if (it != user_username_map.end()) {
-        return &it->second;
+    if (it != user_username_map.end() && it->second < users.size()) {
+        return &users[it->second];
     }
     return nullptr;
 }

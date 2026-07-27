@@ -5,6 +5,64 @@ echo Campus Management System - Build Script
 echo ========================================
 echo.
 
+REM ============================================================
+REM Phase 1: 前端构建（Vite + Vue SFC → frontend/dist）
+REM ============================================================
+echo [INFO] Building frontend (Vite + Vue SFC)...
+
+REM 检查 Node.js / npm
+where npm >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Node.js / npm not found in PATH.
+    echo         Please install Node.js 18+ from https://nodejs.org/
+    pause
+    exit /b 1
+)
+
+REM 检查 frontend 目录
+if not exist "frontend\package.json" (
+    echo [ERROR] frontend\package.json not found.
+    pause
+    exit /b 1
+)
+
+pushd frontend
+
+REM 首次构建或依赖缺失时执行 npm install
+if not exist "node_modules" (
+    echo [INFO] Installing frontend dependencies (npm install)...
+    call npm install
+    if %errorlevel% neq 0 (
+        echo [ERROR] npm install failed!
+        popd
+        pause
+        exit /b 1
+    )
+)
+
+echo [INFO] Running Vite build...
+call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Frontend build failed!
+    popd
+    pause
+    exit /b 1
+)
+
+popd
+
+REM 校验构建产物
+if not exist "frontend\dist\index.html" (
+    echo [ERROR] frontend\dist\index.html not found after build.
+    pause
+    exit /b 1
+)
+echo [SUCCESS] Frontend build complete -^> frontend\dist\
+echo.
+
+REM ============================================================
+REM Phase 2: C++ 后端编译（SQLite 模式）
+REM ============================================================
 echo [INFO] Building SQLite database mode...
 
 REM Check for SQLite files

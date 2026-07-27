@@ -23,12 +23,9 @@ static int get_int_field(const json& row, const std::string& key, int default_va
 // 辅助函数：检查 target_student_id 是否与 parent_id 在 parent_students 表中关联
 // 用于家长端越权校验，确保家长只能访问自己子女的数据
 static bool check_same_parent(const std::string& parent_id, const std::string& target_student_id) {
-    char sql[512];
-    snprintf(sql, sizeof(sql),
-        "SELECT 1 FROM parent_students WHERE parent_id = '%s' AND student_id = '%s' LIMIT 1",
-        db.escapeString(parent_id).c_str(),
-        db.escapeString(target_student_id).c_str());
-    auto result = db.query(sql);
+    auto result = db.query_bind(
+        "SELECT 1 FROM parent_students WHERE parent_id = ? AND student_id = ? LIMIT 1",
+        {SqliteDb::Bind(parent_id), SqliteDb::Bind(target_student_id)});
     return !result.empty();
 }
 
@@ -87,16 +84,16 @@ void register_parent_routes(httplib::Server& svr) {
             // 设置 HttpOnly cookie
             int max_age = g_config.session_expiry_hours * 3600;
             set_session_cookie(res, session_id, max_age);
+            // 安全修复 V10：家长登录下发 CSRF Token（与普通登录一致，否则家长登出/写操作会 403）
+            std::string csrf = issue_csrf_token(res);
 
             // 通过 parent_students 表 JOIN 查询所有子女
             json children = json::array();
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto children_result = db.query_bind(
                 "SELECT u.id, u.name, u.className, u.points FROM users u "
                 "JOIN parent_students ps ON u.id = ps.student_id "
-                "WHERE ps.parent_id = '%s'",
-                db.escapeString(user->id).c_str());
-            auto children_result = db.query(sql);
+                "WHERE ps.parent_id = ?",
+                {SqliteDb::Bind(user->id)});
             for (const auto& row : children_result) {
                 json child;
                 child["id"] = get_string_field(row, "id");
@@ -111,9 +108,16 @@ void register_parent_routes(httplib::Server& svr) {
                 {"code", 200},
                 {"msg", "登录成功"},
                 {"data", {
-                    {"name", user->name},
-                    {"username", username},
-                    {"children", children}
+                    {"user", {
+                        {"id", user->id},
+                        {"username", username},
+                        {"name", user->name},
+                        {"role_id", 4},
+                        {"className", user->className},
+                        {"points", user->points}
+                    }},
+                    {"children", children},
+                    {"csrf_token", csrf}
                 }}
             };
 
@@ -130,6 +134,8 @@ void register_parent_routes(httplib::Server& svr) {
     // 家长退出登录 API
     svr.Post("/api/parent/logout", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
         std::string session_id = get_cookie_value(req, "sid");
         if (!session_id.empty()) {
             delete_session(session_id);
@@ -153,13 +159,11 @@ void register_parent_routes(httplib::Server& svr) {
         json children = json::array();
 
         // 通过 parent_students 表 JOIN 查询所有子女
-        char sql[512];
-        snprintf(sql, sizeof(sql),
+        auto children_result = db.query_bind(
             "SELECT u.id, u.name, u.className, u.points FROM users u "
             "JOIN parent_students ps ON u.id = ps.student_id "
-            "WHERE ps.parent_id = '%s'",
-            db.escapeString(parent_id).c_str());
-        auto children_result = db.query(sql);
+            "WHERE ps.parent_id = ?",
+            {SqliteDb::Bind(parent_id)});
         for (const auto& row : children_result) {
             json child;
             child["id"] = get_string_field(row, "id");
@@ -195,13 +199,11 @@ void register_parent_routes(httplib::Server& svr) {
             }
 
             // 查询子女信息及班级排名（按 points 降序计算）
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto result = db.query_bind(
                 "SELECT u.id, u.name, u.username, u.className, u.points, "
                 "(SELECT COUNT(*) + 1 FROM users u2 WHERE u2.className = u.className AND u2.role_id = 3 AND u2.points > u.points) as rank "
-                "FROM users u WHERE u.id = '%s' AND u.role_id = 3",
-                db.escapeString(target_id).c_str());
-            auto result = db.query(sql);
+                "FROM users u WHERE u.id = ? AND u.role_id = 3",
+                {SqliteDb::Bind(target_id)});
             if (result.empty()) {
                 response = {{"code", 404}, {"msg", "学生不存在"}};
                 res.set_content(response.dump(), "application/json");
@@ -248,12 +250,10 @@ void register_parent_routes(httplib::Server& svr) {
 
             json records = json::array();
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto result = db.query_bind(
                 "SELECT id, points, reason, created_at FROM points_records "
-                "WHERE student_id = '%s' ORDER BY created_at DESC",
-                db.escapeString(target_id).c_str());
-            auto result = db.query(sql);
+                "WHERE student_id = ? ORDER BY created_at DESC",
+                {SqliteDb::Bind(target_id)});
             for (const auto& row : result) {
                 json record;
                 int points = row.value("points", 0);
@@ -295,16 +295,14 @@ void register_parent_routes(httplib::Server& svr) {
 
             json evaluations = json::array();
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto result = db.query_bind(
                 "SELECT e.id, e.dimension_id, e.score, e.comment, e.created_at, "
                 "u.name as evaluator_name "
                 "FROM evaluations e "
                 "LEFT JOIN users u ON e.evaluator_id = u.id "
-                "WHERE e.student_id = '%s' "
+                "WHERE e.student_id = ? "
                 "ORDER BY e.created_at DESC",
-                db.escapeString(target_id).c_str());
-            auto result = db.query(sql);
+                {SqliteDb::Bind(target_id)});
             for (const auto& row : result) {
                 json eval;
                 int dimension_id = row.value("dimension_id", 0);
@@ -348,16 +346,14 @@ void register_parent_routes(httplib::Server& svr) {
 
             json redemptions = json::array();
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto result = db.query_bind(
                 "SELECT r.id, r.item_id, r.cost, r.created_at, "
                 "m.name as item_name "
                 "FROM redemption_records r "
                 "LEFT JOIN mall_items m ON r.item_id = m.id "
-                "WHERE r.student_id = '%s' "
+                "WHERE r.student_id = ? "
                 "ORDER BY r.created_at DESC",
-                db.escapeString(target_id).c_str());
-            auto result = db.query(sql);
+                {SqliteDb::Bind(target_id)});
             for (const auto& row : result) {
                 json redemption;
                 redemption["id"] = row.value("id", 0);
@@ -398,13 +394,11 @@ void register_parent_routes(httplib::Server& svr) {
 
             json messages = json::array();
 
-            char sql[512];
-            snprintf(sql, sizeof(sql),
+            auto result = db.query_bind(
                 "SELECT id, sender_type, sender_id, content, reply_to, created_at, read_status "
                 "FROM parent_messages "
-                "WHERE student_id = '%s' ORDER BY created_at ASC",
-                db.escapeString(target_id).c_str());
-            auto result = db.query(sql);
+                "WHERE student_id = ? ORDER BY created_at ASC",
+                {SqliteDb::Bind(target_id)});
             for (const auto& row : result) {
                 json msg;
                 msg["id"] = get_int_field(row, "id");
@@ -434,6 +428,8 @@ void register_parent_routes(httplib::Server& svr) {
         if (parent_id.empty()) {
             return;
         }
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
 
         json response;
         try {
@@ -454,16 +450,10 @@ void register_parent_routes(httplib::Server& svr) {
                 return;
             }
 
-            char sql[1024];
-            snprintf(sql, sizeof(sql),
+            if (db.execute_bind(
                 "INSERT INTO parent_messages (student_id, sender_type, sender_id, content, reply_to, created_at, read_status) "
-                "VALUES ('%s', 'parent', '%s', '%s', NULL, '%s', 0)",
-                db.escapeString(target_id).c_str(),
-                db.escapeString(parent_id).c_str(),
-                db.escapeString(content).c_str(),
-                get_current_time().c_str());
-
-            if (db.execute(sql)) {
+                "VALUES (?, 'parent', ?, ?, NULL, ?, 0)",
+                {SqliteDb::Bind(target_id), SqliteDb::Bind(parent_id), SqliteDb::Bind(content), SqliteDb::Bind(get_current_time())})) {
                 Logger::info("家长(parent_id=" + parent_id +
                              ") 给学生 " + target_id + " 发送了留言");
                 response = {{"code", 200}, {"msg", "留言发送成功"}};

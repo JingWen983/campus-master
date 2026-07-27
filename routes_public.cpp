@@ -11,7 +11,7 @@
 void register_public_routes(httplib::Server& svr) {
     // 1. 登录 API
     svr.Post("/api/auth/login", [](const httplib::Request& req, httplib::Response& res) {
-        set_cors_headers(res);
+        set_cors_headers(req, res);
         json response;
 
         try {
@@ -25,19 +25,38 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
 
+            // 安全修复 V8：登录失败锁定
+            std::string lk = login_client_key(req, username);
+            if (!login_can_try(lk)) {
+                response = {{"code", 429}, {"msg", "登录尝试过于频繁，请稍后再试"}};
+                res.status = 429;
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
             User* user = find_user_by_username(username);
             if (!user) {
+                login_record_fail(lk);
                 response = {{"code", 401}, {"msg", "用户名或密码错误"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
             bool password_match = verify_password(password, user->password_hash);
+            // 安全修复 V5：旧版无盐哈希登录成功后自动升级为 PBKDF2
+            if (password_match && user->password_hash.compare(0, 7, "pbkdf2$") != 0) {
+                std::string new_hash = hash_password(password);
+                user->password_hash = new_hash;
+                save_user_to_db(*user);
+            }
             if (!password_match) {
+                login_record_fail(lk);
                 response = {{"code", 401}, {"msg", "用户名或密码错误"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
+
+            login_record_success(lk);
 
             // 生成会话并存入数据库（家长角色需标记 is_parent=true 以通过家长端中间件校验）
             cleanup_expired_sessions();
@@ -48,6 +67,8 @@ void register_public_routes(httplib::Server& svr) {
             // 设置 HttpOnly cookie
             int max_age = g_config.session_expiry_hours * 3600;
             set_session_cookie(res, session_id, max_age);
+            // 安全修复 V10：登录成功后下发 CSRF Token
+            std::string csrf = issue_csrf_token(res);
 
             response = {
                 {"code", 200},
@@ -59,7 +80,8 @@ void register_public_routes(httplib::Server& svr) {
                         {"name", user->name},
                         {"role_id", user->role_id},
                         {"className", user->className}
-                    }}
+                    }},
+                    {"csrf_token", csrf}
                 }}
             };
 
@@ -72,7 +94,9 @@ void register_public_routes(httplib::Server& svr) {
 
     // 退出登录 API
     svr.Post("/api/auth/logout", [](const httplib::Request& req, httplib::Response& res) {
-        set_cors_headers(res);
+        set_cors_headers(req, res);
+        // 安全修复 V10：登出要求 CSRF Token，防止跨站强制登出
+        if (!require_csrf(req, res)) return;
         std::string session_id = get_cookie_value(req, "sid");
         if (!session_id.empty()) {
             delete_session(session_id);
@@ -82,9 +106,9 @@ void register_public_routes(httplib::Server& svr) {
         res.set_content(response.dump(), "application/json");
     });
 
-    // 2. 注册 API
+    // 2. 注册 API（公开接口，不需要 CSRF）
     svr.Post("/api/auth/register", [](const httplib::Request& req, httplib::Response& res) {
-        set_cors_headers(res);
+        set_cors_headers(req, res);
         json response;
 
         try {
@@ -93,10 +117,27 @@ void register_public_routes(httplib::Server& svr) {
             string password = req_json.value("password", "");
             string name = req_json.value("name", "");
             string className = req_json.value("className", "");
-            int role_id = req_json.value("role_id", 3);
+
+            // 安全修复 V1：开放注册仅允许学生角色，杜绝 role_id 注入提权
+            // 忽略客户端传入的 role_id，强制为 3（学生）
+            const int role_id = 3;
 
             if (username.empty() || password.empty() || name.empty()) {
                 response = {{"code", 400}, {"msg", "用户名、密码和姓名不能为空"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            // 安全修复 V8：密码最小长度校验
+            if (password.length() < 6) {
+                response = {{"code", 400}, {"msg", "密码长度不能少于6位"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            // 安全修复 V1：学生必须设置班级
+            if (className.empty()) {
+                response = {{"code", 400}, {"msg", "学生必须设置班级"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
@@ -120,7 +161,7 @@ void register_public_routes(httplib::Server& svr) {
                 name,
                 className,
                 0,
-                (role_id == 3) ? username : ""
+                username
             };
 
             users.push_back(new_user);
@@ -228,11 +269,9 @@ void register_public_routes(httplib::Server& svr) {
 
         json records = json::array();
 
-        char sql[512];
-        snprintf(sql, sizeof(sql),
-            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = '%s' ORDER BY created_at DESC",
-            db.escapeString(user_id).c_str());
-        json result = db.query(sql);
+        json result = db.query_bind(
+            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = ? ORDER BY created_at DESC",
+            {SqliteDb::Bind(user_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);
@@ -270,6 +309,8 @@ void register_public_routes(httplib::Server& svr) {
     // 7. 兑换商品 API
     svr.Post("/api/mall/redeem", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
         json response;
 
         std::string session_id = get_cookie_value(req, "sid");
@@ -297,7 +338,9 @@ void register_public_routes(httplib::Server& svr) {
             }
 
             // 后端验证：从数据库读取商品真实价格和库存，忽略客户端传入的 cost
-            json item_result = db.query("SELECT cost, stock FROM mall_items WHERE id = " + to_string(item_id) + " AND status = 1");
+            json item_result = db.query_bind(
+                "SELECT cost, stock FROM mall_items WHERE id = ? AND status = 1",
+                {SqliteDb::Bind((long long)item_id)});
             if (item_result.empty()) {
                 response = {{"code", 404}, {"msg", "商品不存在或已下架"}};
                 res.set_content(response.dump(), "application/json");
@@ -322,9 +365,9 @@ void register_public_routes(httplib::Server& svr) {
             if (stock == 0) {
                 stock_ok = false;
             } else if (stock > 0) {
-                char stock_sql[256];
-                snprintf(stock_sql, sizeof(stock_sql), "UPDATE mall_items SET stock = stock - 1 WHERE id = %d AND stock > 0", item_id);
-                db.execute(stock_sql);
+                db.execute_bind(
+                    "UPDATE mall_items SET stock = stock - 1 WHERE id = ? AND stock > 0",
+                    {SqliteDb::Bind((long long)item_id)});
             }
 
             if (!stock_ok) {
@@ -335,11 +378,9 @@ void register_public_routes(httplib::Server& svr) {
 
             user->points -= cost;
             update_user_points_in_db(user->id, user->points);
-            char redeem_sql[512];
-            snprintf(redeem_sql, sizeof(redeem_sql),
-                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES ('%s', %d, %d, '%s')",
-                db.escapeString(user_id).c_str(), item_id, cost, get_current_time().c_str());
-            db.execute(redeem_sql);
+            db.execute_bind(
+                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
+                {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost), SqliteDb::Bind(get_current_time())});
 
             response = {
                 {"code", 200},

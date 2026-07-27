@@ -70,11 +70,9 @@ void register_student_routes(httplib::Server& svr) {
 
         json records = json::array();
 
-        char sql[512];
-        snprintf(sql, sizeof(sql),
-            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = '%s' ORDER BY created_at DESC",
-            db.escapeString(user_id).c_str());
-        json result = db.query(sql);
+        json result = db.query_bind(
+            "SELECT id, points, reason, created_at FROM points_records WHERE student_id = ? ORDER BY created_at DESC",
+            {SqliteDb::Bind(user_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);
@@ -112,17 +110,14 @@ void register_student_routes(httplib::Server& svr) {
         json evaluations_json = json::array();
 
         // 从数据库获取评价数据
-        char sql[512];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT e.id, e.student_id, e.dimension_id, e.score, e.comment, e.evaluator_id, e.created_at, "
             "u.name as evaluator_name "
             "FROM evaluations e "
             "LEFT JOIN users u ON e.evaluator_id = u.id "
-            "WHERE e.student_id = '%s' "
+            "WHERE e.student_id = ? "
             "ORDER BY e.created_at DESC",
-            db.escapeString(user_id).c_str());
-
-        json result = db.query(sql);
+            {SqliteDb::Bind(user_id)});
 
         // 评价维度名称映射
         unordered_map<int, string> dimension_names = {
@@ -231,17 +226,14 @@ void register_student_routes(httplib::Server& svr) {
 
         json records_json = json::array();
 
-        char sql[1024];
-        snprintf(sql, sizeof(sql),
+        json result = db.query_bind(
             "SELECT r.id, r.student_id, r.item_id, r.cost, r.created_at, "
             "m.name as item_name, m.description as item_description "
             "FROM redemption_records r "
             "LEFT JOIN mall_items m ON r.item_id = m.id "
-            "WHERE r.student_id = '%s' "
+            "WHERE r.student_id = ? "
             "ORDER BY r.created_at DESC",
-            db.escapeString(user_id).c_str());
-
-        json result = db.query(sql);
+            {SqliteDb::Bind(user_id)});
         for (const auto& row : result) {
             json record;
             record["id"] = row.value("id", 0);

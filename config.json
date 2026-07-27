@@ -1,6 +1,6 @@
 {
     "server": {
-        "host": "0.0.0.0",
+        "host": "127.0.0.1",
         "port": 8080,
         "thread_count": 8
     },
@@ -17,7 +17,11 @@
         "session_expiry_hours": 24,
         "cookie_name": "sid",
         "max_login_attempts": 5,
-        "lockout_minutes": 30
+        "lockout_minutes": 30,
+        "csrf_enabled": true
+    },
+    "cors": {
+        "allowed_origins": []
     },
     "https": {
         "enabled": false,

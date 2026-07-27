@@ -1,0 +1,187 @@
+name: Release
+
+# 触发条件：推送 v*.*.* 标签 或 手动触发
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release 版本号（如 0.0.1，不带 v 前缀）'
+        required: true
+        default: '0.0.1'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # 创建 release 需要
+
+    steps:
+      # ===== 1. Checkout =====
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ===== 2. 解析版本号 =====
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="v${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF##*/}"   # refs/tags/v0.0.1 → v0.0.1
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Resolved release tag: $TAG"
+
+      # ===== 3. 前端构建（Vite + Vue SFC） =====
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify frontend dist
+        shell: bash
+        run: |
+          test -f frontend/dist/index.html || { echo "ERROR: frontend/dist/index.html missing"; exit 1; }
+          echo "Frontend dist OK"
+          ls frontend/dist
+
+      # ===== 4. C++ 后端编译（MinGW g++ + SQLite 静态链接） =====
+      # windows-latest 自带 MinGW-w64 (g++ in PATH)
+      - name: Compile SQLite C library
+        run: gcc -c sqlite3.c -o sqlite3.o -O2
+
+      - name: Compile C++ sources
+        run: |
+          g++ -c main.cpp          -o main.o          -std=c++11 -O2 -I.
+          g++ -c models.cpp        -o models.o        -std=c++11 -O2 -I.
+          g++ -c logger.cpp        -o logger.o        -std=c++11 -O2 -I.
+          g++ -c routes_static.cpp -o routes_static.o -std=c++11 -O2 -I.
+          g++ -c routes_public.cpp -o routes_public.o -std=c++11 -O2 -I.
+          g++ -c routes_admin.cpp  -o routes_admin.o  -std=c++11 -O2 -I.
+          g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++11 -O2 -I.
+          g++ -c routes_student.cpp -o routes_student.o -std=c++11 -O2 -I.
+          g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
+
+      - name: Link server.exe
+        run: |
+          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2
+
+      - name: Verify server.exe
+        shell: bash
+        run: |
+          test -f server.exe || { echo "ERROR: server.exe missing"; exit 1; }
+          echo "server.exe built OK"
+          ls -lh server.exe
+
+      # ===== 5. 组装发布目录 =====
+      - name: Assemble release folder
+        shell: bash
+        run: |
+          mkdir -p release/frontend
+          # 可执行文件
+          cp server.exe release/
+          # 前端构建产物
+          cp -r frontend/dist release/frontend/dist
+          # 运行时配置与脚本
+          cp config.json release/
+          cp start_server.bat release/
+          cp install_autostart.bat release/
+          cp build.bat release/
+          # 文档
+          cp README.md release/
+          [ -d docs ] && cp -r docs release/ || true
+          # 版本信息
+          echo "${{ steps.ver.outputs.tag }}" > release/VERSION.txt
+          echo "Build: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
+          echo "Commit: ${GITHUB_SHA}" >> release/VERSION.txt
+          echo "Release folder assembled:"
+          ls -R release | head -40
+
+      # ===== 6. 打包 zip =====
+      - name: Create zip package
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $zipName = "campus-energy-station-${tag}.zip"
+          # Compress-Archive 需要先进入目录以避免外层 release/ 路径
+          Compress-Archive -Path release\* -DestinationPath $zipName -Force
+          Write-Host "Created: $zipName"
+          Get-ChildItem $zipName | Select-Object Name, Length
+
+      # ===== 7. 上传构建产物（便于下载检查） =====
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: campus-energy-station-${{ steps.ver.outputs.tag }}
+          path: campus-energy-station-${{ steps.ver.outputs.tag }}.zip
+          retention-days: 30
+
+      # ===== 8. 创建 GitHub Release =====
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          ZIP="campus-energy-station-${TAG}.zip"
+
+          # 写入 release notes（heredoc 顶格，避免前导空格）
+          cat > release_notes.md <<'EOF'
+          # 校园文明能量站（Campus Energy Station）
+
+          首个正式发布版本。
+
+          ## 包含内容
+          - `server.exe` — C++ 后端可执行文件（SQLite 静态链接，无需额外 dll）
+          - `frontend/dist/` — Vite + Vue 3 SFC 构建产物（5 个 HTML 入口 + hashed assets）
+          - `config.json` — 运行时配置
+          - `start_server.bat` — 服务器启动脚本（崩溃自动重启）
+          - `install_autostart.bat` — 开机自启注册脚本
+          - `build.bat` — 完整构建脚本
+          - `README.md` — 项目文档
+          - `docs/` — 用户手册
+
+          ## 快速开始
+          1. 解压 zip 到任意目录
+          2. 双击 `start_server.bat` 启动服务
+          3. 浏览器访问 `http://localhost:8080`
+
+          ## 默认账号
+          - 管理员：`admin` / `admin123`
+          - 教师：`teacher` / `teacher123`
+          - 学生：`student` / `student123`
+
+          ## 运行环境
+          - Windows 10/11（64 位）
+          - 无需安装 Node.js（前端已预构建）
+          - 无需安装额外 dll（SQLite 静态链接）
+
+          ## 技术栈
+          - 后端：C++11 + cpp-httplib + nlohmann/json + SQLite3（静态链接）
+          - 前端：Vite + Vue 3 SFC + TypeScript + Tailwind CSS + ECharts
+          - 自实现：SHA-256 密码哈希
+          EOF
+
+          # 去除每行前导 10 空格缩进（保持 heredoc 可读性）
+          sed -i 's/^          //' release_notes.md
+
+          # gh release create 会自动创建对应 tag（workflow_dispatch 场景）
+          gh release create "$TAG" "$ZIP" \
+            --title "$TAG" \
+            --notes-file release_notes.md
+
+          echo "Release $TAG created successfully"
