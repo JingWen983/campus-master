@@ -78,16 +78,19 @@ jobs:
           g++ -c routes_student.cpp -o routes_student.o -std=c++11 -O2 -I.
           g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
 
-      - name: Link server.exe
+      - name: Link server.exe (静态链接 MinGW 运行时)
         run: |
-          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2
+          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
 
-      - name: Verify server.exe
+      - name: Verify server.exe 无外部 DLL 依赖
         shell: bash
         run: |
           test -f server.exe || { echo "ERROR: server.exe missing"; exit 1; }
           echo "server.exe built OK"
           ls -lh server.exe
+          # 检查依赖的 DLL（应为空或仅 Windows 系统 DLL）
+          echo "=== DLL 依赖检查 ==="
+          objdump -p server.exe 2>/dev/null | grep "DLL Name:" || echo "无 DLL 依赖信息"
 
       # ===== 5. 组装发布目录 =====
       - name: Assemble release folder

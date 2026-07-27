@@ -155,8 +155,8 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [INFO] Linking...
-g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2
+echo [INFO] Linking (静态链接 MinGW 运行时，避免 DLL 依赖)...
+g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
 if %errorlevel% neq 0 (
     echo [ERROR] Linking failed!
     pause
