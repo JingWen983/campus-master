@@ -84,6 +84,8 @@ void register_parent_routes(httplib::Server& svr) {
             // 设置 HttpOnly cookie
             int max_age = g_config.session_expiry_hours * 3600;
             set_session_cookie(res, session_id, max_age);
+            // 安全修复 V10：家长登录下发 CSRF Token（与普通登录一致，否则家长登出/写操作会 403）
+            std::string csrf = issue_csrf_token(res);
 
             // 通过 parent_students 表 JOIN 查询所有子女
             json children = json::array();
@@ -106,9 +108,16 @@ void register_parent_routes(httplib::Server& svr) {
                 {"code", 200},
                 {"msg", "登录成功"},
                 {"data", {
-                    {"name", user->name},
-                    {"username", username},
-                    {"children", children}
+                    {"user", {
+                        {"id", user->id},
+                        {"username", username},
+                        {"name", user->name},
+                        {"role_id", 4},
+                        {"className", user->className},
+                        {"points", user->points}
+                    }},
+                    {"children", children},
+                    {"csrf_token", csrf}
                 }}
             };
 

@@ -4,6 +4,10 @@
 #include <fstream>
 #include <iterator>
 #include <system_error>
+#include <vector>
+
+// 前端构建产物目录（Vite 输出：5 个 HTML + assets/）
+static const std::string FRONTEND_DIR = "frontend/dist";
 
 // 安全修复 V3：检查路径是否包含 .. 等穿越组件
 // 已 URL 解码后的路径若包含 ".." 段，则视为非法
@@ -18,143 +22,78 @@ static bool is_path_safe(const std::string& path) {
     return true;
 }
 
-// 安全修复 V3：在指定白名单目录内解析文件，越界返回 false
-static bool read_file_in_base(const std::string& url_path,
-                              const std::string& base_prefix,
-                              std::string& content,
-                              std::string& content_type_out) {
-    // 仅接受形如 /base/xxx 的请求，并强制拼接为相对工作目录路径
-    if (url_path.size() <= base_prefix.size()) return false;
-    if (url_path.compare(0, base_prefix.size(), base_prefix) != 0) return false;
+// 按文件扩展名设置 Content-Type（精确后缀匹配，避免 .js 误匹配 .json）
+static std::string content_type_for(const std::string& path) {
+    auto pos = path.find_last_of('.');
+    if (pos == std::string::npos) return "application/octet-stream";
+    std::string ext = path.substr(pos);
+    if (ext == ".js" || ext == ".mjs")  return "application/javascript";
+    if (ext == ".css")                   return "text/css";
+    if (ext == ".json")                  return "application/json";
+    if (ext == ".html" || ext == ".htm") return "text/html; charset=utf-8";
+    if (ext == ".woff2")                 return "font/woff2";
+    if (ext == ".woff")                  return "font/woff";
+    if (ext == ".ttf")                   return "font/ttf";
+    if (ext == ".svg")                   return "image/svg+xml";
+    if (ext == ".png")                   return "image/png";
+    if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+    if (ext == ".gif")                   return "image/gif";
+    if (ext == ".ico")                   return "image/x-icon";
+    if (ext == ".map")                   return "application/json";
+    return "application/octet-stream";
+}
 
-    std::string rel = url_path.substr(1); // 去掉开头的 '/'
-    if (!is_path_safe(rel)) return false;
-
-    std::ifstream ifs(rel, std::ios::binary);
+// 从 FRONTEND_DIR 读取指定相对路径文件，写入 content 并返回 true；失败返回 false
+static bool read_frontend_file(const std::string& rel_path,
+                               std::string& content,
+                               std::string& content_type_out) {
+    if (!is_path_safe(rel_path)) return false;
+    std::string full = FRONTEND_DIR + "/" + rel_path;
+    std::ifstream ifs(full, std::ios::binary);
     if (!ifs) return false;
     content.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-
-    // 根据文件扩展名设置 Content-Type（白名单）
-    content_type_out = "application/octet-stream";
-    if (rel.find(".js") != std::string::npos)        content_type_out = "application/javascript";
-    else if (rel.find(".css") != std::string::npos)  content_type_out = "text/css";
-    else if (rel.find(".json") != std::string::npos) content_type_out = "application/json";
-    else if (rel.find(".html") != std::string::npos) content_type_out = "text/html";
-    else if (rel.find(".woff2") != std::string::npos) content_type_out = "font/woff2";
-    else if (rel.find(".woff") != std::string::npos) content_type_out = "font/woff";
-    else if (rel.find(".ttf") != std::string::npos)  content_type_out = "font/ttf";
-    else if (rel.find(".svg") != std::string::npos)  content_type_out = "image/svg+xml";
-    else if (rel.find(".png") != std::string::npos)  content_type_out = "image/png";
-    else if (rel.find(".jpg") != std::string::npos || rel.find(".jpeg") != std::string::npos)
-        content_type_out = "image/jpeg";
+    content_type_out = content_type_for(rel_path);
     return true;
 }
 
+// 便捷：直接向 res 输出 FRONTEND_DIR 下的文件，失败返回 404
+static void serve_frontend_file(httplib::Response& res, const std::string& rel_path) {
+    std::string content, ctype;
+    if (!read_frontend_file(rel_path, content, ctype)) {
+        res.status = 404;
+        res.set_content("Not found", "text/plain; charset=utf-8");
+        return;
+    }
+    res.set_content(content, ctype.c_str());
+}
+
 void register_static_routes(httplib::Server& svr) {
-    // 1. 处理前端发送 POST 请求前的 OPTIONS 预检请求 (解决跨域拦截)
+    // 1. 处理前端 POST 请求前的 OPTIONS 预检请求 (解决跨域拦截)
     svr.Options(R"(.*)", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
         res.status = 200;
     });
 
-    // 0. 根路径返回 index.html (登录页面)
-    svr.Get("/", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("index.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("index.html not found", "text/plain");
-            return;
-        }
+    // 2. HTML 页面路由（表驱动，替代 5 段重复 ifstream handler）
+    // URL → FRONTEND_DIR 下的文件名
+    static const std::vector<std::pair<std::string, std::string>> html_routes = {
+        {"/",            "index.html"},
+        {"/index.html",  "index.html"},
+        {"/admin.html",  "admin.html"},
+        {"/teacher.html","teacher.html"},
+        {"/student.html","student.html"},
+        {"/parent.html", "parent.html"},
+    };
+    for (const auto& route : html_routes) {
+        svr.Get(route.first, [file = route.second](const httplib::Request& req, httplib::Response& res) {
+            serve_frontend_file(res, file);
+        });
+    }
 
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.0 /index.html 也返回登录页面
-    svr.Get("/index.html", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("index.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("index.html not found", "text/plain");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.1 返回 admin.html
-    svr.Get("/admin.html", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("admin.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("admin.html not found", "text/plain");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.2 返回 teacher.html
-    svr.Get("/teacher.html", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("teacher.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("teacher.html not found", "text/plain");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.3 返回 student.html
-    svr.Get("/student.html", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("student.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("student.html not found", "text/plain");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.3.1 返回 parent.html
-    svr.Get("/parent.html", [](const httplib::Request& req, httplib::Response& res) {
-        std::ifstream ifs("parent.html", std::ios::binary);
-        if (!ifs) {
-            res.status = 404;
-            res.set_content("parent.html not found", "text/plain");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        res.set_content(content, "text/html");
-    });
-
-    // 0.4 返回 lib 目录下的静态文件
-    svr.Get("/lib/.*", [](const httplib::Request& req, httplib::Response& res) {
-        std::string content, ctype;
-        // 安全修复 V3：拒绝路径穿越，统一走白名单读取函数
-        if (!read_file_in_base(req.path, "/lib/", content, ctype)) {
-            res.status = 404;
-            res.set_content("Not found", "text/plain");
-            return;
-        }
-        res.set_content(content, ctype.c_str());
-    });
-
-    // 0.5 返回 webfonts 目录下的字体文件
-    svr.Get("/webfonts/.*", [](const httplib::Request& req, httplib::Response& res) {
-        std::string content, ctype;
-        if (!read_file_in_base(req.path, "/webfonts/", content, ctype)) {
-            res.status = 404;
-            res.set_content("Not found", "text/plain");
-            return;
-        }
-        res.set_content(content, ctype.c_str());
+    // 3. Vite 构建产物 /assets/* （hashed JS/CSS/字体，由 Vite 生成）
+    svr.Get("/assets/.*", [](const httplib::Request& req, httplib::Response& res) {
+        // req.path 形如 /assets/index-AbCd.js，去掉前导 '/' 即相对 FRONTEND_DIR 的路径
+        std::string rel = req.path.substr(1); // "assets/index-AbCd.js"
+        serve_frontend_file(res, rel);
     });
 }

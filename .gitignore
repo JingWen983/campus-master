@@ -52,3 +52,8 @@ Desktop.ini
 
 # Trae 工具目录（spec 文档可选择性保留，这里排除）
 .trae/
+
+# 前端工程（Vite + Vue SFC）
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

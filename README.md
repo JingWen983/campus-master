@@ -81,17 +81,22 @@
 
 ### 3.2 前端架构
 
-- **4 个单文件 HTML 应用**：
-  - `index.html` — 统一登录入口（角色判断跳转）
-  - `admin.html` — 管理员后台
-  - `teacher.html` — 教师工作台
-  - `student.html` — 学生个人中心
-- **`lib/common.js`** — 公共 API 请求封装，提供：
-  - `apiRequest(method, url, data)` — 统一 API 请求（自动注入 Authorization Token）
-  - `checkAuth(roleId)` — 登录状态与角色校验（不通过则跳转登录页）
-  - `logout()` — 清除本地存储并跳转登录页
-  - `formatDateTime(dateStr)` — 日期时间格式化为 `YYYY-MM-DD HH:mm:ss`
-- **资源本地化**：所有依赖（Vue/Tailwind/ECharts/字体）均托管在 `lib/` 和 `webfonts/` 目录，无外部 CDN 依赖
+基于 **Vite + Vue 3 SFC + TypeScript** 工程化架构，源码位于 `frontend/`，构建产物输出到 `frontend/dist/`，由 C++ 后端静态服务托管。
+
+- **5 个独立入口 HTML**（多入口构建，各角色一个 SPA）：
+  - `index.html` → 登录页（`src/pages/Login.vue`）
+  - `admin.html` → 管理员后台（`src/pages/admin/AdminApp.vue`，7 tab）
+  - `teacher.html` → 教师工作台（`src/pages/teacher/TeacherApp.vue`，7 tab）
+  - `student.html` → 学生个人中心（`src/pages/student/StudentApp.vue`）
+  - `parent.html` → 家长端（`src/pages/parent/ParentApp.vue`）
+- **公共基础设施**（`src/lib/`）：
+  - `api.ts` — `apiRequest(method, url, data)`，统一注入 CSRF Token（`X-CSRF-Token` 头）+ 错误 Toast + 401 跳登录
+  - `auth.ts` — `checkAuth(roleId)` 调 `/api/auth/me` 验证会话；`logout()` 带 CSRF 头登出
+  - `format.ts` — `formatDateTime` 等格式化工具，注册为 `app.config.globalProperties.$formatDateTime`
+  - `theme.ts` / `navConfig.ts` — 角色主题色与侧边栏导航配置
+- **Composables**（`src/composables/`）：`useToast`（替换 `alert`）、`useConfirm`（替换 `confirm`）、`usePagination`、`useChart`（ECharts 生命周期）
+- **可复用组件**（`src/components/`）：`AppLayout`、`Sidebar`、`BaseModal`、`StatCard`、`RoleBadge`、`BaseChart`、`EmptyState`、`Pagination`、`ToastContainer`、`ConfirmDialog`
+- **依赖**：Vue 3、ECharts、XLSX、pinyin-pro、Tailwind CSS（PostCSS 构建）、FontAwesome —— 全部经 npm 管理，Vite 打包 hashed 产物到 `dist/assets/`
 
 ### 3.3 RBAC 权限模型
 
@@ -161,23 +166,29 @@ comptation/
 ├── sqlite3.exp               # SQLite3 导出文件
 ├── sqlite_wrapper.h          # SQLite3 C++ 封装类（SqliteDb）
 ├── database.h                # 数据库辅助定义
-├── build.bat                 # 构建脚本（SQLite 模式）
+├── build.bat                 # 构建脚本（前端 Vite 构建 + C++ SQLite 模式）
 ├── start_server.bat          # 服务器启动脚本（崩溃后 5 秒自动重启）
 ├── install_autostart.bat     # 开机自启注册脚本（Windows 任务计划）
 ├── campus_system.db          # SQLite 数据库文件（运行时生成）
 ├── server.exe                # 编译生成的可执行文件
 ├── server.log                # 运行时日志文件
-├── index.html                # 前端 - 登录入口页
-├── admin.html                # 前端 - 管理员后台
-├── teacher.html              # 前端 - 教师工作台
-├── student.html              # 前端 - 学生个人中心
-├── lib/                      # 前端公共资源目录
-│   ├── common.js             # 公共 API 请求封装（apiRequest/checkAuth/logout）
-│   ├── vue.min.js            # Vue 3 框架（本地化）
-│   ├── tailwind.min.js       # Tailwind CSS（本地化）
-│   ├── echarts.min.js        # ECharts 图表库（本地化）
-│   ├── fonts.css             # 字体样式定义
-│   └── fontawesome.zip       # Font Awesome 图标包
+├── frontend/                 # 前端工程（Vite + Vue SFC + TypeScript）
+│   ├── package.json          # 依赖与构建脚本（vue/echarts/xlsx/pinyin-pro/tailwindcss）
+│   ├── vite.config.ts        # 多入口构建配置（5 个 HTML 入口）
+│   ├── tsconfig.json         # TypeScript 配置
+│   ├── tailwind.config.js    # Tailwind CSS 配置
+│   ├── index.html            # Vite 入口 → src/pages/Login.vue
+│   ├── admin.html            # Vite 入口 → src/pages/admin/AdminApp.vue
+│   ├── teacher.html          # Vite 入口 → src/pages/teacher/TeacherApp.vue
+│   ├── student.html          # Vite 入口 → src/pages/student/StudentApp.vue
+│   ├── parent.html           # Vite 入口 → src/pages/parent/ParentApp.vue
+│   └── src/
+│       ├── main.ts           # createApp 工厂 + globalProperties + Toast/Confirm 挂载
+│       ├── style.css         # 主题：:root 变量、@font-face、.glass*、.blob、.grain、动画
+│       ├── lib/              # api.ts / auth.ts / format.ts / theme.ts / navConfig.ts
+│       ├── composables/      # useToast / useConfirm / usePagination / useChart
+│       ├── components/       # AppLayout / Sidebar / BaseModal / StatCard / BaseChart 等 10 个
+│       └── pages/            # Login.vue + admin/ + teacher/ + student/ + parent/
 ├── test_production.py        # 生产环境综合测试（75 项）
 ├── test_frontend_redesign.py # 前端重构验证测试（28 项）
 ├── test_permissions.py       # 权限漏洞专项测试
@@ -193,22 +204,40 @@ comptation/
 
 - **编译器**：MinGW-w64 / g++（支持 C++11 标准）
 - **SQLite3 源码**：`sqlite3.c` / `sqlite3.h` / `sqlite3.dll`
+- **Node.js**：18+（含 npm，用于前端 Vite 构建）
 - **操作系统**：Windows（脚本基于 `.bat`，代码含 Windows 控制台 UTF-8 设置）
 
 ### 5.2 方式一：使用 build.bat
 
 双击运行 `build.bat`，脚本会自动完成以下步骤：
 
-1. 检查 `sqlite3.h` 与 `sqlite3.dll` 是否存在
-2. 编译 SQLite C 库（`sqlite3.c` → `sqlite3.o`）
-3. 逐个编译所有 `.cpp` 源文件
-4. 链接生成 `server.exe`（包含 `sqlite3.o` + `-lws2_32 -lwsock32`）
+**Phase 1 — 前端构建**：
+
+1. 检查 Node.js / npm 是否可用
+2. 进入 `frontend/`，若 `node_modules` 不存在则执行 `npm install`
+3. 执行 `npm run build`，Vite 构建产物输出到 `frontend/dist/`（5 个 HTML + `assets/`）
+4. 校验 `frontend/dist/index.html` 存在
+
+**Phase 2 — C++ 后端编译**：
+
+5. 检查 `sqlite3.h` 与 `sqlite3.dll` 是否存在
+6. 编译 SQLite C 库（`sqlite3.c` → `sqlite3.o`）
+7. 逐个编译所有 `.cpp` 源文件
+8. 链接生成 `server.exe`（包含 `sqlite3.o` + `-lws2_32 -lwsock32`）
 
 构建过程中数据持久化到 `campus_system.db`。
+
+> **说明**：C++ 后端通过 `routes_static.cpp` 从 `frontend/dist/` 提供静态文件，因此必须先完成前端构建。
 
 ### 5.3 方式二：手动编译
 
 ```bash
+# 0. 构建前端（Vite 产物 → frontend/dist/）
+cd frontend
+npm install
+npm run build
+cd ..
+
 # 1. 编译 SQLite3 C 库
 gcc -c sqlite3.c -o sqlite3.o -O2
 
@@ -227,7 +256,7 @@ g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
 g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2
 ```
 
-> **说明**：`-lws2_32 -lwsock32` 为 Windows 套接字库，cpp-httplib 依赖其进行网络通信。
+> **说明**：`-lws2_32 -lwsock32` 为 Windows 套接字库，cpp-httplib 依赖其进行网络通信。前端构建步骤（步骤 0）不可省略，否则 `frontend/dist/` 不存在会导致页面 404。
 
 ---
 
@@ -259,16 +288,20 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 系统共提供 **63 个路由端点**，按模块分组如下。
 
-### 7.1 静态文件路由（6 个）
+### 7.1 静态文件路由（7 个）
+
+由 `routes_static.cpp` 从 `frontend/dist/` 提供前端构建产物。
 
 | 方法 | 路径 | 权限 | 功能说明 |
 |------|------|------|----------|
+| OPTIONS | `.*` | 公开 | CORS 预检请求 |
 | GET | `/` | 公开 | 返回 `index.html` 登录入口页 |
+| GET | `/index.html` | 公开 | 返回登录入口页 |
 | GET | `/admin.html` | 公开 | 返回管理员后台页面 |
 | GET | `/teacher.html` | 公开 | 返回教师工作台页面 |
 | GET | `/student.html` | 公开 | 返回学生个人中心页面 |
-| GET | `/lib/.*` | 公开 | 提供 `lib/` 目录下的 JS/CSS 静态资源 |
-| GET | `/webfonts/.*` | 公开 | 提供 `webfonts/` 目录下的字体文件 |
+| GET | `/parent.html` | 公开 | 返回家长端页面 |
+| GET | `/assets/.*` | 公开 | 提供 Vite 构建的 hashed JS/CSS/字体资源 |
 
 ### 7.2 公共 API（8 个）
 

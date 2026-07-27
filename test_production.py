@@ -61,18 +61,28 @@ def test_server_health():
     status, _ = api_call("GET", "/", parse_json=False)
     record("健康检查", "根路径返回登录页", status == 200, f"HTTP {status}")
 
-    # 静态资源可访问
-    status, _ = api_call("GET", "/lib/tailwind.min.js", parse_json=False)
-    record("健康检查", "静态资源 tailwind.min.js", status == 200, f"HTTP {status}")
+    # Vite 构建产物：登录页应引用 /assets/ 下的 hashed 资源
+    # 直接请求完整 HTML（api_call 会截断 raw 到 200 字符，此处需完整内容）
+    import re
+    try:
+        with urllib.request.urlopen(f"{BASE}/", timeout=10) as r:
+            html = r.read().decode()
+        has_assets_ref = "/assets/" in html
+    except Exception:
+        html = ""
+        has_assets_ref = False
+    record("健康检查", "登录页引用 Vite 构建产物", has_assets_ref, "检查 /assets/ 引用")
 
-    status, _ = api_call("GET", "/lib/vue.min.js", parse_json=False)
-    record("健康检查", "静态资源 vue.min.js", status == 200, f"HTTP {status}")
-
-    status, _ = api_call("GET", "/lib/common.js", parse_json=False)
-    record("健康检查", "公共脚本 common.js", status == 200, f"HTTP {status}")
+    # 校验 /assets/* 资源可访问（从首页提取一个 asset 路径）
+    asset_ok = False
+    m = re.search(r'/(assets/[^\s"\']+\.js)', html)
+    if m:
+        a_status, _ = api_call("GET", "/" + m.group(1), parse_json=False)
+        asset_ok = a_status == 200
+    record("健康检查", "Vite hashed 资源可访问", asset_ok, "/assets/*.js")
 
     # 页面可访问
-    for page in ["/admin.html", "/teacher.html", "/student.html"]:
+    for page in ["/admin.html", "/teacher.html", "/student.html", "/parent.html"]:
         status, _ = api_call("GET", page, parse_json=False)
         record("健康检查", f"页面 {page}", status == 200, f"HTTP {status}")
 
