@@ -85,7 +85,7 @@ void register_static_routes(httplib::Server& svr) {
         {"/parent.html", "parent.html"},
     };
     for (const auto& route : html_routes) {
-        svr.Get(route.first, [file = route.second](const httplib::Request& req, httplib::Response& res) {
+        svr.Get(route.first.c_str(), [file = route.second](const httplib::Request& req, httplib::Response& res) {
             serve_frontend_file(res, file);
         });
     }
