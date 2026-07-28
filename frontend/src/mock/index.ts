@@ -204,8 +204,9 @@ function saveDB(db: MockDB) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
 }
 
-function nextId(records: { id: number }[]): number {
-  return records.length ? Math.max(...records.map(r => r.id)) + 1 : 1
+function nextId(records: { id: number | string }[]): number {
+  const nums = records.map(r => Number(r.id)).filter(n => !isNaN(n))
+  return nums.length ? Math.max(...nums) + 1 : 1
 }
 
 // ===================== 路由匹配 + 处理器 =====================
