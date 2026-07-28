@@ -26,15 +26,21 @@ export const ROLE_NAMES: Record<number, string> = {
   4: '家长',
 }
 
-/** 跳转到对应角色主页 */
+/** 跳转到对应角色主页（适配 GitHub Pages 子路径） */
 export function getRoleHome(roleId: number): string {
-  switch (roleId) {
-    case 1: return '/admin.html'
-    case 2: return '/teacher.html'
-    case 3: return '/student.html'
-    case 4: return '/parent.html'
-    default: return '/'
-  }
+  // import.meta.env.BASE_URL 由 Vite 注入，值为 vite.config.ts 的 base
+  // 本地开发为 '/'，GitHub Pages 为 '/campus-master/'
+  const base = import.meta.env.BASE_URL || '/'
+  const page = (() => {
+    switch (roleId) {
+      case 1: return 'admin.html'
+      case 2: return 'teacher.html'
+      case 3: return 'student.html'
+      case 4: return 'parent.html'
+      default: return ''
+    }
+  })()
+  return base + page
 }
 
 /** 模块级响应式 userInfo，全应用共享（登录前为空对象） */
@@ -106,7 +112,7 @@ export async function logout() {
   }
   clearUserInfo()
   clearCsrfToken()
-  location.href = '/'
+  location.href = import.meta.env.BASE_URL || '/'
 }
 
 /**
@@ -120,7 +126,7 @@ export async function checkAuth(roleId: number): Promise<UserInfo | null> {
   // 1. 先用 localStorage 快速短路（无本地态直接跳）
   const local = loadFromStorage()
   if (!local) {
-    location.href = '/'
+    location.href = import.meta.env.BASE_URL || '/'
     return null
   }
 
@@ -129,7 +135,7 @@ export async function checkAuth(roleId: number): Promise<UserInfo | null> {
   if (res.code !== 200 || !res.data) {
     clearUserInfo()
     clearCsrfToken()
-    location.href = '/'
+    location.href = import.meta.env.BASE_URL || '/'
     return null
   }
 

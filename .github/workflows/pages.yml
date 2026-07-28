@@ -1,0 +1,77 @@
+name: Deploy to GitHub Pages
+
+# 纯前端 Demo 部署 —— 使用 Mock 数据，无需 C++ 后端
+# 访问地址: https://jingwen983.github.io/campus-master/
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build with Mock data
+        working-directory: frontend
+        env:
+          # 启用 Mock 模式 + 配置 GitHub Pages 子路径
+          VITE_USE_MOCK: 'true'
+          VITE_BASE: '/campus-master/'
+        run: npm run build
+
+      - name: Verify build output
+        working-directory: frontend
+        run: |
+          test -f dist/index.html || { echo "ERROR: dist/index.html missing"; exit 1; }
+          echo "=== Build output ==="
+          ls -la dist/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Output deployment URL
+        run: |
+          echo "=== Deployed to GitHub Pages ==="
+          echo "URL: ${{ steps.deployment.outputs.page_url }}"
+          echo ""
+          echo "Demo 账号（任意密码均可登录）:"
+          echo "  管理员: admin"
+          echo "  教师:   teacher"
+          echo "  学生:   student"
+          echo "  家长:   parent"

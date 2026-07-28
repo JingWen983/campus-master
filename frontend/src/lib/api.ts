@@ -6,8 +6,13 @@
  * - 写方法（POST/PUT/DELETE）自动从 localStorage 读取并注入 X-CSRF-Token 头
  *   对应后端 auth.h csrf_check()：校验该头与 HttpOnly cookie csrf_token 相等
  * - 401 自动跳登录页；403/网络错误/非 JSON 通过 useToast 报错
+ *
+ * Mock 模式（GitHub Pages Demo）：
+ * - 当 VITE_USE_MOCK=true 时，所有请求走 mockRequest()，返回 localStorage 数据
+ * - 用于纯前端部署（无 C++ 后端环境）
  */
 import { toast } from '../composables/useToast'
+import { isMockEnabled, mockRequest } from '../mock'
 
 const API_BASE = ''
 
@@ -49,6 +54,11 @@ export async function apiRequest<T = any>(
   url: string,
   data?: any
 ): Promise<ApiResponse<T>> {
+  // Mock 模式：GitHub Pages 纯前端 Demo，无 C++ 后端
+  if (isMockEnabled()) {
+    return mockRequest<T>(method, url, data)
+  }
+
   const options: RequestInit = {
     method,
     credentials: 'include',
@@ -94,8 +104,8 @@ export async function apiRequest<T = any>(
     // 会话失效：清本地态并跳登录
     localStorage.removeItem('userInfo')
     clearCsrfToken()
-    if (!location.pathname.endsWith('/index.html') && location.pathname !== '/') {
-      location.href = '/'
+    if (!location.pathname.endsWith('/index.html') && location.pathname !== '/' && location.pathname !== import.meta.env.BASE_URL) {
+      location.href = import.meta.env.BASE_URL || '/'
     }
     return json
   }
