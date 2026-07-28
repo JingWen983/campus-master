@@ -1,0 +1,68 @@
+# 编译产物
+*.o
+*.obj
+*.pdb
+*.exe
+*.dll
+*.lib
+*.exp
+
+# 构建工具临时文件
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.aps
+*.opendb
+*.VC.db
+*.VC.opendb
+
+# 测试脚本与产物（不入库）
+test_*.py
+verify_*.py
+check_*.py
+test_*.csv
+test_*.png
+test_*.exe
+screenshots/
+*_test.py
+
+# 冗余压缩包与重复源码
+*.zip
+sqlite_src/
+
+# 安全修复 V16：禁止提交 Cookie / 凭据文件
+cookies*.txt
+*.cookie
+*.session
+.env
+*.pem
+*.key
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 安全修复 V16：日志和所有运行时数据库一律不入库
+# 种子数据如需保留请改名为 seed.db 并加入 docs/seed/ 目录单独管理
+*.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Trae 工具目录（spec 文档可选择性保留，这里排除）
+.trae/
+
+# 前端工程（Vite + Vue SFC）
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

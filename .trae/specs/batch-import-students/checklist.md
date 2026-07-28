@@ -1,0 +1,18 @@
+- [x] `lib/xlsx.min.js` 存在且在 admin.html 中正确引用，浏览器无 404
+- [x] `lib/pinyin-pro.umd.min.js` 存在且在 admin.html 中正确引用，浏览器无 404
+- [x] 用户管理 tab 顶部可见"批量导入学生"按钮
+- [x] 点击"下载模板"可下载 `学生批量导入模板.xlsx`，含表头"姓名|班级名称"和示例行
+- [x] 上传合法 .xlsx 文件后，预览表展示解析行数与班级匹配状态
+- [x] 上传合法 .csv 文件（UTF-8）后，预览表同样正常展示
+- [x] 预览表中班级名错误的行以红色标注且标注"未匹配"
+- [x] 提交导入后，后端返回 code=200 且包含 success/failed/records
+- [x] 导入成功的学生 ID 格式为 `student-<grade_code>-<class_code>-<seq>`（如 student-02-01-02）
+- [x] 同班两个学生 username 序号递增（如 zd0101 / qe0102）
+- [x] 用导入生成的 username/password 可成功登录学生端
+- [x] 部分行失败时不影响其他行导入（部分成功）
+- [x] 结果视图展示成功数/失败数/明细，含"复制全部账号密码"按钮
+- [x] 班级不存在的行失败原因明确（如"班级不存在：不存在的班级"）
+- [x] 用户名已存在时该行失败，原因明确（如"用户名已存在：csj0101"）
+- [x] 后端 `POST /api/admin/students/batch-import` 有 `user:manage` 权限校验，未登录返回 401/403
+- [x] 现有 `/api/admin/import`（系统级备份恢复）未被破坏
+- [x] 编译无错误，服务器正常启动
