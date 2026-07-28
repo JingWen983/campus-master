@@ -22,6 +22,8 @@ jobs:
       # ===== 1. Checkout =====
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       # ===== 2. 解析版本号 =====
       - name: Resolve version
@@ -101,11 +103,8 @@ jobs:
           cp server.exe release/
           # 前端构建产物
           cp -r frontend/dist release/frontend/dist
-          # 运行时配置与脚本
+          # 运行时配置
           cp config.json release/
-          cp start_server.bat release/
-          cp install_autostart.bat release/
-          cp build.bat release/
           # 文档
           cp README.md release/
           [ -d docs ] && cp -r docs release/ || true
@@ -154,15 +153,12 @@ jobs:
           - `server.exe` — C++ 后端可执行文件（SQLite 静态链接，无需额外 dll）
           - `frontend/dist/` — Vite + Vue 3 SFC 构建产物（5 个 HTML 入口 + hashed assets）
           - `config.json` — 运行时配置
-          - `start_server.bat` — 服务器启动脚本（崩溃自动重启）
-          - `install_autostart.bat` — 开机自启注册脚本
-          - `build.bat` — 完整构建脚本
           - `README.md` — 项目文档
           - `docs/` — 用户手册
 
           ## 快速开始
           1. 解压 zip 到任意目录
-          2. 双击 `start_server.bat` 启动服务
+          2. 命令行运行 `server.exe` 启动服务
           3. 浏览器访问 `http://localhost:8080`
 
           ## 默认账号
