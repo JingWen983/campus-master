@@ -18,10 +18,19 @@
 *.VC.db
 *.VC.opendb
 
-# 测试脚本
-_test_*.py
-_test_*.csv
-_*.py
+# 测试脚本与产物（不入库）
+test_*.py
+verify_*.py
+check_*.py
+test_*.csv
+test_*.png
+test_*.exe
+screenshots/
+*_test.py
+
+# 冗余压缩包与重复源码
+*.zip
+sqlite_src/
 
 # 安全修复 V16：禁止提交 Cookie / 凭据文件
 cookies*.txt
