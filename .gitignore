@@ -33,6 +33,10 @@ screenshots/
 *.zip
 sqlite_src/
 
+# 本地依赖工具目录（当前构建未使用，保留在本地、不入库）
+vcpkg/
+.zcode/
+
 # 安全修复 V16：禁止提交 Cookie / 凭据文件
 cookies*.txt
 *.cookie
