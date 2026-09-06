@@ -1,0 +1,88 @@
+name: CI
+
+# PR 检查：前端类型检查与构建 + 后端编译冒烟
+# 后端编译命令与 release.yml 完全同源，提前到 PR 阶段拦截编译回归
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: 前端类型检查与构建
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck (vue-tsc)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build (Mock 模式，与 pages.yml 同参)
+        working-directory: frontend
+        env:
+          VITE_USE_MOCK: 'true'
+          VITE_BASE: '/campus-master/'
+        run: npm run build:no-typecheck
+
+      - name: Verify build output
+        working-directory: frontend
+        run: |
+          test -f dist/index.html || { echo "ERROR: dist/index.html missing"; exit 1; }
+          echo "Frontend build OK"
+
+  backend:
+    name: 后端编译冒烟
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # windows-latest 自带 MinGW-w64 (gcc/g++ in PATH)
+      - name: Compile SQLite C library
+        run: gcc -c sqlite3.c -o sqlite3.o -O2
+
+      - name: Compile C++ sources
+        shell: bash
+        run: |
+          set -e
+          g++ -c main.cpp          -o main.o          -std=c++11 -O2 -I.
+          g++ -c models.cpp        -o models.o        -std=c++11 -O2 -I.
+          g++ -c logger.cpp        -o logger.o        -std=c++11 -O2 -I.
+          g++ -c routes_static.cpp -o routes_static.o -std=c++11 -O2 -I.
+          g++ -c routes_public.cpp -o routes_public.o -std=c++11 -O2 -I.
+          g++ -c routes_admin.cpp  -o routes_admin.o  -std=c++11 -O2 -I.
+          g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++11 -O2 -I.
+          g++ -c routes_student.cpp -o routes_student.o -std=c++11 -O2 -I.
+          g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
+
+      - name: Link server.exe (静态链接 MinGW 运行时)
+        run: |
+          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          test -f server.exe || { echo "ERROR: server.exe missing"; exit 1; }
+          ls -lh server.exe
+          echo "Backend build OK"
