@@ -28,20 +28,22 @@
 
 **核心功能**：
 
-- **用户管理**：管理员/教师/学生三类账号，支持 CRUD、批量导入、密码重置
+- **用户管理**：管理员/教师/学生/家长四类账号，支持 CRUD、批量导入、密码重置
 - **积分管理**：教师对学生进行加分/扣分操作，完整记录历史流水
 - **评价管理**：多维度学生评价（学习、纪律、品德等），支持增删改查
 - **商城兑换**：积分兑换实物奖品，库存管理、兑换记录追溯
+- **家长端**：绑定孩子，查看积分/评价/兑换记录，家校留言沟通
 - **数据统计**：班级排名、学生排名、维度统计、可视化图表（ECharts）
 - **班级管理**：班级信息维护、班主任绑定、年级分组
 
-**三角色权限**：
+**四角色权限**：
 
 | 角色 | role_id | 主要职责 |
 |------|---------|----------|
 | 管理员 | 1 | 系统配置、用户/角色/权限管理、商城管理、数据导入导出 |
-| 教师 | 2 | 学生管理、积分操作、学生评价、数据统计查看 |
+| 教师 | 2 | 学生管理、积分操作、学生评价、班级管理、家校留言、数据统计查看 |
 | 学生 | 3 | 查看个人信息、积分记录、评价结果、商城兑换 |
+| 家长 | 4 | 绑定孩子，查看孩子积分/评价/兑换记录，商城兑换，家校留言 |
 
 ---
 
@@ -51,11 +53,11 @@
 |------|----------|------|
 | **后端** | C++11 + cpp-httplib | 单头文件 HTTP 服务器，轻量高效 |
 | **数据库** | SQLite3 | 持久化存储，数据落盘到 `campus_system.db` |
-| **前端** | Vue 3（CDN 单文件应用） | 4 个独立 HTML 应用，无构建步骤 |
-| **样式** | Tailwind CSS | 实用优先的 CSS 框架（本地化） |
+| **前端** | Vue 3 SFC + TypeScript | Vite 多入口构建，5 个独立 SPA（登录/管理员/教师/学生/家长） |
+| **样式** | Tailwind CSS | 实用优先的 CSS 框架（npm + PostCSS 构建） |
 | **图表** | ECharts | 数据可视化（班级排名、维度统计等） |
 | **字体** | Fraunces + Noto Sans SC | 衬线展示字体 + 中文正文字体，已本地化 |
-| **安全** | SHA256 + Token + RBAC | 密码哈希存储、Token 认证、基于角色的权限控制 |
+| **安全** | PBKDF2 + Cookie 会话 + CSRF + RBAC | 密码哈希（10 万次迭代加盐）、HttpOnly Cookie 会话、CSRF 双提交校验、登录锁定、基于角色的权限控制 |
 | **JSON** | nlohmann/json | 单头文件 JSON 解析库 |
 
 ---
@@ -68,15 +70,17 @@
 |------|------|
 | `config.h` | `ServerConfig` 结构体定义 + `load_config()` 配置加载函数（从 `config.json` 读取） |
 | `logger.h` / `logger.cpp` | `Logger` 类，支持日志级别（info/warning/error）+ 日志轮转（按大小/数量） |
-| `sha256.h` | SHA256 哈希算法实现 + 密码工具函数（`sha256()` 哈希计算） |
+| `sha256.h` | SHA256 哈希算法实现 + 密码哈希工具（`hash_password()`/`verify_password()`：PBKDF2-SHA256 十万次迭代 + 随机盐，自动识别兼容旧版 SHA-256 哈希） |
 | `models.h` / `models.cpp` | `User`/`Role`/`Permission`/`RolePermission`/`PointsRecord` 结构体 + 全局数据容器 + 索引优化（`find_user_by_id`/`find_user_by_username`/`check_permission_optimized`） |
-| `auth.h` | CORS 头设置 + 请求/响应日志 + Token 生成/验证/解析 + `check_permission_middleware` 权限中间件 |
-| `routes.h` | 5 个路由注册函数声明 |
-| `routes_static.cpp` | 静态文件服务（HTML/CSS/JS/字体） |
-| `routes_public.cpp` | 公共 API（登录/注册/用户信息/行为历史/商城/排名） |
-| `routes_admin.cpp` | 管理员 API（30 个端点） |
-| `routes_teacher.cpp` | 教师 API（14 个端点） |
+| `auth.h` | CORS 头设置 + 请求/响应日志 + Cookie 会话管理（HttpOnly/SameSite/Secure）+ CSRF 双提交校验 + `check_permission_middleware` 权限中间件 |
+| `routes.h` | 6 个路由注册函数声明 |
+| `routes_static.cpp` | 静态文件服务（frontend/dist/ 的 HTML 与 hashed 资源） |
+| `routes_public.cpp` | 公共 API（登录/注册/登出/用户信息/行为历史/商城/排名） |
+| `routes_admin.cpp` | 管理员 API（31 个端点） |
+| `routes_teacher.cpp` | 教师 API（19 个端点） |
 | `routes_student.cpp` | 学生 API（5 个端点） |
+| `routes_parent.cpp` | 家长 API（9 个端点） |
+| `sqlite_wrapper.h` / `database.h` | SQLite3 C API 的 C++ 封装（`SqliteDb`）+ 数据库辅助定义 |
 | `main.cpp` | 入口文件：配置加载 → 日志初始化 → 数据库初始化 → 路由注册 → 索引初始化 → 线程池 → 启动服务器 |
 
 ### 3.2 前端架构
@@ -100,15 +104,16 @@
 
 ### 3.3 RBAC 权限模型
 
-**3 个角色**：
+**4 个角色**：
 
 | role_id | 角色名 | 描述 |
 |---------|--------|------|
 | 1 | 管理员 | 系统管理员，拥有所有权限 |
 | 2 | 教师 | 教师角色，管理学生和积分 |
 | 3 | 学生 | 学生角色，查看个人信息和兑换 |
+| 4 | 家长 | 家长角色，查看孩子学习成绩和积分情况 |
 
-**7 个权限**：
+**12 个权限**：
 
 | permission_id | 权限名称 | 权限代码 | 描述 |
 |---------------|----------|----------|------|
@@ -119,20 +124,30 @@
 | 5 | 评价管理 | `evaluation:manage` | 学生评价管理 |
 | 6 | 商城管理 | `mall:manage` | 兑换商城管理 |
 | 7 | 数据统计 | `statistics:view` | 数据统计查看 |
+| 8 | 家长管理 | `parent:manage` | 家长账号与绑定管理 |
+| 9 | 留言管理 | `message:manage` | 家校留言管理 |
+| 10 | 班级管理 | `class:manage` | 班级信息管理 |
+| 11 | 兑换管理 | `redemption:manage` | 兑换记录管理 |
+| 12 | 数据导出 | `data:export` | 数据导出与备份 |
 
 **权限分配表**（角色 × 权限）：
 
-| 权限代码 | 管理员(1) | 教师(2) | 学生(3) |
-|----------|:---------:|:-------:|:-------:|
-| `system:manage` | ✅ | — | — |
-| `user:manage` | ✅ | — | — |
-| `student:manage` | ✅ | ✅ | — |
-| `points:manage` | ✅ | ✅ | — |
-| `evaluation:manage` | ✅ | ✅ | — |
-| `mall:manage` | ✅ | — | ✅ |
-| `statistics:view` | ✅ | ✅ | — |
+| 权限代码 | 管理员(1) | 教师(2) | 学生(3) | 家长(4) |
+|----------|:---------:|:-------:|:-------:|:-------:|
+| `system:manage` | ✅ | — | — | — |
+| `user:manage` | ✅ | — | — | — |
+| `student:manage` | ✅ | ✅ | — | — |
+| `points:manage` | ✅ | ✅ | — | — |
+| `evaluation:manage` | ✅ | ✅ | — | — |
+| `mall:manage` | ✅ | — | ✅ | ✅ |
+| `statistics:view` | ✅ | ✅ | — | — |
+| `parent:manage` | ✅ | — | — | — |
+| `message:manage` | ✅ | ✅ | — | ✅ |
+| `class:manage` | ✅ | ✅ | — | — |
+| `redemption:manage` | ✅ | ✅ | — | ✅ |
+| `data:export` | ✅ | — | — | — |
 
-> 管理员拥有全部 7 项权限；教师拥有 4 项（学生/积分/评价/统计）；学生仅拥有 1 项（商城，用于兑换）。
+> 管理员拥有全部 12 项权限；教师拥有 7 项（学生/积分/评价/统计/留言/班级/兑换）；学生仅拥有 1 项（商城，用于兑换）；家长拥有 3 项（商城/留言/兑换）。
 
 ---
 
@@ -140,61 +155,58 @@
 
 ```
 comptation/
-├── main.cpp                  # 服务器入口文件（配置加载/数据库初始化/路由注册/启动）
-├── config.h                  # ServerConfig 结构体 + load_config() 配置加载
-├── config.json               # 运行时配置文件（端口/数据库/日志/安全/HTTPS）
-├── logger.h                  # Logger 类声明
-├── logger.cpp                # Logger 类实现（含日志轮转）
-├── sha256.h                  # SHA256 哈希算法 + 密码工具函数
-├── models.h                  # 数据模型结构体声明（User/Role/Permission 等）
-├── models.cpp                # 全局数据容器 + 索引优化实现
-├── auth.h                    # CORS + Token 认证 + 权限中间件
-├── routes.h                  # 路由注册函数声明
-├── routes_static.cpp         # 静态文件路由（HTML/CSS/JS/字体）
-├── routes_public.cpp         # 公共 API 路由（8 个端点）
-├── routes_admin.cpp          # 管理员 API 路由（30 个端点）
-├── routes_teacher.cpp        # 教师 API 路由（14 个端点）
-├── routes_student.cpp        # 学生 API 路由（5 个端点）
-├── httplib.h                 # cpp-httplib 单头文件 HTTP 服务器库
-├── json.hpp                  # nlohmann/json 单头文件 JSON 库
-├── sqlite3.c                 # SQLite3 源码（amalgamation）
-├── sqlite3.h                 # SQLite3 头文件
-├── sqlite3ext.h              # SQLite3 扩展头文件
-├── sqlite3.dll               # SQLite3 动态链接库（运行时依赖）
-├── sqlite3.def               # SQLite3 模块定义文件
-├── sqlite3.lib               # SQLite3 静态库
-├── sqlite3.exp               # SQLite3 导出文件
-├── sqlite_wrapper.h          # SQLite3 C++ 封装类（SqliteDb）
-├── database.h                # 数据库辅助定义
-├── build.bat                 # 构建脚本（前端 Vite 构建 + C++ SQLite 模式）
-├── start_server.bat          # 服务器启动脚本（崩溃后 5 秒自动重启）
-├── install_autostart.bat     # 开机自启注册脚本（Windows 任务计划）
-├── campus_system.db          # SQLite 数据库文件（运行时生成）
-├── server.exe                # 编译生成的可执行文件
-├── server.log                # 运行时日志文件
-├── frontend/                 # 前端工程（Vite + Vue SFC + TypeScript）
-│   ├── package.json          # 依赖与构建脚本（vue/echarts/xlsx/pinyin-pro/tailwindcss）
-│   ├── vite.config.ts        # 多入口构建配置（5 个 HTML 入口）
-│   ├── tsconfig.json         # TypeScript 配置
-│   ├── tailwind.config.js    # Tailwind CSS 配置
-│   ├── index.html            # Vite 入口 → src/pages/Login.vue
-│   ├── admin.html            # Vite 入口 → src/pages/admin/AdminApp.vue
-│   ├── teacher.html          # Vite 入口 → src/pages/teacher/TeacherApp.vue
-│   ├── student.html          # Vite 入口 → src/pages/student/StudentApp.vue
-│   ├── parent.html           # Vite 入口 → src/pages/parent/ParentApp.vue
+├── .github/
+│   └── workflows/
+│       ├── ci.yml           # PR 检查（前端 typecheck/build + 后端编译冒烟）
+│       ├── pages.yml        # 纯前端 Mock Demo 自动部署到 GitHub Pages
+│       └── release.yml      # 推送 v*.*.* 标签时编译打包并发布 GitHub Release
+├── main.cpp                 # 服务器入口文件（配置加载/数据库初始化/路由注册/启动）
+├── config.h                 # ServerConfig 结构体 + load_config() 配置加载
+├── config.json              # 运行时配置文件（端口/数据库/日志/安全/CORS/HTTPS）
+├── logger.h / logger.cpp    # Logger 类（日志级别 + 按大小/数量轮转）
+├── sha256.h                 # SHA256 算法 + PBKDF2 密码哈希/校验工具函数
+├── models.h / models.cpp    # 数据模型结构体 + 全局数据容器 + 索引优化
+├── auth.h                   # CORS + Cookie 会话认证 + CSRF 校验 + 权限中间件
+├── routes.h                 # 路由注册函数声明
+├── routes_static.cpp        # 静态文件路由（frontend/dist/ 构建产物）
+├── routes_public.cpp        # 公共 API 路由（9 个端点）
+├── routes_admin.cpp         # 管理员 API 路由（31 个端点）
+├── routes_teacher.cpp       # 教师 API 路由（19 个端点）
+├── routes_student.cpp       # 学生 API 路由（5 个端点）
+├── routes_parent.cpp        # 家长 API 路由（9 个端点）
+├── httplib.h                # cpp-httplib 单头文件 HTTP 服务器库
+├── json.hpp                 # nlohmann/json 单头文件 JSON 库
+├── sqlite3.c / sqlite3.h / sqlite3ext.h  # SQLite3 amalgamation 源码（直接静态编译）
+├── sqlite3.def              # SQLite3 模块定义文件
+├── sqlite_wrapper.h         # SQLite3 C++ 封装类（SqliteDb）
+├── database.h               # 数据库辅助定义
+├── frontend/                # 前端工程（Vite + Vue 3 SFC + TypeScript + Tailwind）
+│   ├── package.json         # 依赖与构建脚本（vue/echarts/xlsx/pinyin-pro/font-awesome）
+│   ├── vite.config.ts       # 多入口构建配置（5 个 HTML 入口）
+│   ├── tailwind.config.js / postcss.config.js / tsconfig.json
+│   ├── index.html           # Vite 入口 → src/pages/Login.vue（登录页）
+│   ├── admin.html / teacher.html / student.html / parent.html  # 各角色入口
 │   └── src/
-│       ├── main.ts           # createApp 工厂 + globalProperties + Toast/Confirm 挂载
-│       ├── style.css         # 主题：:root 变量、@font-face、.glass*、.blob、.grain、动画
-│       ├── lib/              # api.ts / auth.ts / format.ts / theme.ts / navConfig.ts
-│       ├── composables/      # useToast / useConfirm / usePagination / useChart
-│       ├── components/       # AppLayout / Sidebar / BaseModal / StatCard / BaseChart 等 10 个
-│       └── pages/            # Login.vue + admin/ + teacher/ + student/ + parent/
-├── test_production.py        # 生产环境综合测试（75 项）
-├── test_frontend_redesign.py # 前端重构验证测试（28 项）
-├── test_permissions.py       # 权限漏洞专项测试
-└── docs/
-    └── user_manual.md        # 用户使用手册
+│       ├── main.ts          # createApp 工厂 + globalProperties + Toast/Confirm 挂载
+│       ├── style.css        # 主题：:root 变量、@font-face、.glass*、动画
+│       ├── lib/             # api.ts / auth.ts / format.ts / theme.ts / navConfig.ts
+│       ├── mock/            # 纯前端 Mock 数据层（仅 GitHub Pages 演示用）
+│       ├── entries/         # 各 HTML 入口引导（login/admin/teacher/student/parent）
+│       ├── composables/     # useToast / useConfirm / usePagination / useChart
+│       ├── components/      # AppLayout / Sidebar / BaseModal / StatCard 等 10 个
+│       ├── assets/          # 本地化字体（Fraunces / Noto Sans SC）
+│       └── pages/           # Login.vue + admin/ + teacher/ + student/ + parent/
+└── docs/                    # 项目文档
+    ├── design_document.md   # 系统设计文档
+    ├── database_design.md   # 数据库设计说明
+    ├── user_manual.md       # 用户使用手册
+    ├── maintenance_manual.md# 维护手册
+    ├── sqlite_setup.md      # SQLite 构建说明
+    ├── arch_diagram.jpg / flow_diagram.jpg  # 架构/流程图
+    └── shots/               # 功能截图
 ```
+
+> 运行时在本地生成的 `campus_system.db`（数据库）、`server.log`（日志）、`cookies*.txt`（调试会话）等文件已被 `.gitignore` 排除，不入库。
 
 ---
 
@@ -202,42 +214,37 @@ comptation/
 
 ### 5.1 环境要求
 
-- **编译器**：MinGW-w64 / g++（支持 C++11 标准）
-- **SQLite3 源码**：`sqlite3.c` / `sqlite3.h` / `sqlite3.dll`
-- **Node.js**：18+（含 npm，用于前端 Vite 构建）
-- **操作系统**：Windows（脚本基于 `.bat`，代码含 Windows 控制台 UTF-8 设置）
+- **编译器**：MinGW-w64 g++（支持 C++11，CI 使用 gcc 14.2.0 验证通过）
+- **Node.js**：20+（含 npm，仅前端构建需要）
+- **SQLite3**：无需安装，仓库内自带 amalgamation 源码（`sqlite3.c`），直接静态编译
+- **操作系统**：Windows（使用 WinSock 网络库；CI 与 Release 均在 windows-latest 上构建）
 
-### 5.2 方式一：使用 build.bat
+### 5.2 前端构建（必须先于后端）
 
-双击运行 `build.bat`，脚本会自动完成以下步骤：
-
-**Phase 1 — 前端构建**：
-
-1. 检查 Node.js / npm 是否可用
-2. 进入 `frontend/`，若 `node_modules` 不存在则执行 `npm install`
-3. 执行 `npm run build`，Vite 构建产物输出到 `frontend/dist/`（5 个 HTML + `assets/`）
-4. 校验 `frontend/dist/index.html` 存在
-
-**Phase 2 — C++ 后端编译**：
-
-5. 检查 `sqlite3.h` 与 `sqlite3.dll` 是否存在
-6. 编译 SQLite C 库（`sqlite3.c` → `sqlite3.o`）
-7. 逐个编译所有 `.cpp` 源文件
-8. 链接生成 `server.exe`（包含 `sqlite3.o` + `-lws2_32 -lwsock32`）
-
-构建过程中数据持久化到 `campus_system.db`。
-
-> **说明**：C++ 后端通过 `routes_static.cpp` 从 `frontend/dist/` 提供静态文件，因此必须先完成前端构建。
-
-### 5.3 方式二：手动编译
+C++ 后端通过 `routes_static.cpp` 托管 `frontend/dist/` 构建产物，因此首次构建必须先完成前端步骤，否则页面 404。
 
 ```bash
-# 0. 构建前端（Vite 产物 → frontend/dist/）
 cd frontend
-npm install
-npm run build
-cd ..
+npm ci        # 安装依赖（也可用 npm install）
+npm run build # vue-tsc 类型检查 + vite build → dist/
+```
 
+构建产物：`frontend/dist/`（5 个 HTML 入口 + `assets/` hashed 资源）。
+
+**构建参数**（与 `.github/workflows/pages.yml` 一致）：
+
+| 环境变量 | 示例值 | 说明 |
+|----------|--------|------|
+| `VITE_USE_MOCK` | `true` | 启用纯前端 Mock 数据模式（无需 C++ 后端，GitHub Pages Demo 即此形态） |
+| `VITE_BASE` | `/campus-master/` | 部署子路径（GitHub Pages 项目站点需要；独立部署可省略） |
+
+开发调试：`npm run dev` 启动 Vite 开发服务器。
+
+### 5.3 后端编译
+
+以下命令与 `.github/workflows/release.yml` 完全同源：
+
+```bash
 # 1. 编译 SQLite3 C 库
 gcc -c sqlite3.c -o sqlite3.o -O2
 
@@ -252,11 +259,18 @@ g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++11 -O2 -I.
 g++ -c routes_student.cpp -o routes_student.o -std=c++11 -O2 -I.
 g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
 
-# 3. 链接生成可执行文件
-g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2
+# 3. 链接生成 server.exe（静态链接 MinGW 运行时，无外部 DLL 依赖）
+g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
 ```
 
-> **说明**：`-lws2_32 -lwsock32` 为 Windows 套接字库，cpp-httplib 依赖其进行网络通信。前端构建步骤（步骤 0）不可省略，否则 `frontend/dist/` 不存在会导致页面 404。
+> **说明**：
+> - `-lws2_32 -lwsock32` 为 Windows 套接字库，cpp-httplib 依赖其进行网络通信
+> - `-static -static-libgcc -static-libstdc++ -lwinpthread` 确保 `server.exe` 可独立分发，目标机器无需安装 MinGW 运行时
+> - 启动后数据自动持久化到 `campus_system.db`（路径可在 `config.json` 配置）
+
+### 5.4 一键获取成品（免编译）
+
+推送 `v*.*.*` 格式的 tag（或在 Actions 页面手动触发 Release 工作流），GitHub Actions 会自动编译并发布带 `server.exe` + 前端产物的 zip 包，可直接从 [Releases](https://github.com/JingWen983/campus-master/releases) 下载解压运行。
 
 ---
 
@@ -274,8 +288,12 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 | `log.max_size_mb` | int | `10` | 单个日志文件最大大小（MB），超过后触发轮转 |
 | `log.max_files` | int | `5` | 保留的日志文件最大数量 |
 | `security.token_expiry_hours` | int | `24` | Token 过期时间（小时），默认 24 小时 |
+| `security.session_expiry_hours` | int | `24` | 会话过期时间（小时） |
+| `security.cookie_name` | string | `"sid"` | 会话 Cookie 名称 |
+| `security.csrf_enabled` | bool | `true` | 是否启用 CSRF 双提交校验 |
 | `security.max_login_attempts` | int | `5` | 最大登录失败尝试次数（配置项，防暴力破解） |
 | `security.lockout_minutes` | int | `30` | 账户锁定时长（分钟） |
+| `cors.allowed_origins` | list | `[]` | 允许的 CORS 来源列表（空 = 不额外放行跨域来源） |
 | `https.enabled` | bool | `false` | 是否启用 HTTPS（当前编译版本不支持，需 OpenSSL 版本） |
 | `https.cert_path` | string | `""` | HTTPS 证书文件路径 |
 | `https.key_path` | string | `""` | HTTPS 私钥文件路径 |
@@ -286,7 +304,7 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 ## 7. API 接口文档
 
-系统共提供 **63 个路由端点**，按模块分组如下。
+系统共提供 **75 个路由端点**（静态 2 + 公共 9 + 管理员 31 + 教师 19 + 学生 5 + 家长 9），按模块分组如下。
 
 ### 7.1 静态文件路由（7 个）
 
@@ -303,24 +321,25 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 | GET | `/parent.html` | 公开 | 返回家长端页面 |
 | GET | `/assets/.*` | 公开 | 提供 Vite 构建的 hashed JS/CSS/字体资源 |
 
-### 7.2 公共 API（8 个）
+### 7.2 公共 API（9 个）
 
 无需登录即可访问的基础接口。
 
 | 方法 | 路径 | 权限 | 功能说明 |
 |------|------|------|----------|
-| POST | `/api/auth/login` | 公开 | 用户登录，返回 Token 和用户信息 |
+| POST | `/api/auth/login` | 公开 | 用户登录，写入会话 Cookie |
+| POST | `/api/auth/logout` | 登录 | 退出登录，清除会话 |
 | POST | `/api/auth/register` | 公开 | 用户注册（默认学生角色） |
-| GET | `/api/auth/me` | Token | 获取当前登录用户信息 |
-| GET | `/api/user/info` | Token | 获取用户基本信息 |
-| GET | `/api/behavior/history` | Token | 获取行为历史记录 |
+| GET | `/api/auth/me` | 会话 | 获取当前登录用户信息 |
+| GET | `/api/user/info` | 会话 | 获取用户基本信息 |
+| GET | `/api/behavior/history` | 会话 | 获取行为历史记录 |
 | GET | `/api/mall/items` | 公开 | 获取商城商品列表 |
-| POST | `/api/mall/redeem` | Token | 兑换商城商品（扣减积分） |
+| POST | `/api/mall/redeem` | 会话 | 兑换商城商品（扣减积分） |
 | GET | `/api/rank/class` | 公开 | 获取班级积分排名 |
 
-### 7.3 管理员 API（30 个）
+### 7.3 管理员 API（31 个）
 
-所有接口均需 `Authorization` Token + 对应权限。
+所有接口均需会话 Cookie + 对应权限。
 
 #### 系统管理（`system:manage` 权限）
 
@@ -350,6 +369,7 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 |------|------|------|----------|
 | GET | `/api/admin/users` | `user:manage` | 获取用户列表（支持筛选） |
 | POST | `/api/admin/users` | `user:manage` | 新增用户 |
+| POST | `/api/admin/students/batch-import` | `user:manage` | 批量导入学生 |
 | PUT | `/api/admin/users/{id}` | `user:manage` | 更新用户信息 |
 | DELETE | `/api/admin/users` | `user:manage` | 删除用户（批量） |
 | POST | `/api/admin/users/reset-password` | `user:manage` | 重置用户密码 |
@@ -377,10 +397,11 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 |------|------|------|----------|
 | GET | `/api/admin/statistics` | `statistics:view` | 获取综合统计数据（用户/积分/班级维度） |
 
-### 7.4 教师 API（14 个）
+### 7.4 教师 API（19 个）
 
 | 方法 | 路径 | 权限 | 功能说明 |
 |------|------|------|----------|
+| GET | `/api/teacher/my-classes` | `student:manage` | 获取所教班级列表 |
 | GET | `/api/teacher/students` | `student:manage` | 获取学生列表 |
 | POST | `/api/teacher/students` | `student:manage` | 新增学生 |
 | PUT | `/api/teacher/students/{id}` | `student:manage` | 更新学生信息 |
@@ -395,6 +416,10 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 | DELETE | `/api/teacher/evaluation/{id}` | `evaluation:manage` | 删除评价 |
 | GET | `/api/teacher/dashboard` | `student:manage` | 教师仪表盘数据汇总 |
 | GET | `/api/teacher/statistics` | `statistics:view` | 获取教师维度统计数据 |
+| GET | `/api/teacher/parent-messages` | `student:manage` | 获取家校留言列表 |
+| POST | `/api/teacher/parent-messages/{id}/reply` | `student:manage` | 回复家长留言 |
+| PUT | `/api/teacher/parent-messages/{id}/read` | `student:manage` | 标记留言已读 |
+| GET | `/api/teacher/redemptions` | `student:manage` | 获取兑换记录列表 |
 
 ### 7.5 学生 API（5 个）
 
@@ -408,11 +433,27 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 > **说明**：学生端接口统一使用 `mall:manage` 权限作为访问控制（学生角色唯一拥有的权限），用于验证学生身份。
 
+### 7.6 家长 API（9 个）
+
+由 `routes_parent.cpp` 提供，除登录/登出外均通过家长会话校验（`is_parent`），且只能访问已绑定的孩子数据。
+
+| 方法 | 路径 | 权限 | 功能说明 |
+|------|------|------|----------|
+| POST | `/api/parent/login` | 公开 | 家长登录（家长账号 + 家长密码） |
+| POST | `/api/parent/logout` | 家长会话 | 退出登录 |
+| GET | `/api/parent/children` | 家长会话 | 获取绑定的孩子列表 |
+| GET | `/api/parent/student/{id}/info` | 家长会话 | 查看孩子的个人信息与积分 |
+| GET | `/api/parent/student/{id}/points` | 家长会话 | 查看孩子的积分记录 |
+| GET | `/api/parent/student/{id}/evaluation` | 家长会话 | 查看孩子的评价结果 |
+| GET | `/api/parent/student/{id}/redemptions` | 家长会话 | 查看孩子的兑换记录 |
+| GET | `/api/parent/student/{id}/messages` | 家长会话 | 获取家校留言（收件箱） |
+| POST | `/api/parent/student/{id}/messages` | 家长会话 | 发送家校留言 |
+
 ---
 
 ## 8. 数据库设计
 
-数据库初始化 SQL 位于 `main.cpp` 的 `init_sql` 字符串中，共创建 **9 张表** + 4 个索引。
+数据库初始化 SQL 位于 `main.cpp` 的 `init_sql` 字符串中，共创建 **13 张表** + 7 个索引。
 
 ### 8.1 `users` — 用户表
 
@@ -420,8 +461,8 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 |--------|------|------|
 | `id` | INTEGER PK AUTO | 主键，自增 |
 | `username` | TEXT UNIQUE NOT NULL | 用户名，唯一 |
-| `password_hash` | TEXT NOT NULL | 密码的 SHA256 哈希值 |
-| `role_id` | INTEGER NOT NULL | 角色 ID（1=管理员/2=教师/3=学生） |
+| `password_hash` | TEXT NOT NULL | 密码哈希（新版 `pbkdf2$迭代次数$盐$摘要` 格式；初始种子账号为旧版 SHA-256，登录校验时自动识别） |
+| `role_id` | INTEGER NOT NULL | 角色 ID（1=管理员/2=教师/3=学生/4=家长） |
 | `name` | TEXT NOT NULL | 用户姓名 |
 | `className` | TEXT | 班级名称 |
 | `points` | INTEGER DEFAULT 0 | 当前积分 |
@@ -508,11 +549,56 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 | `id` | INTEGER PK AUTO | 主键，自增 |
 | `name` | TEXT UNIQUE NOT NULL | 班级名称，唯一 |
 | `grade` | TEXT | 年级 |
+| `grade_code` | TEXT | 年级编码（如 `02` 表示高二） |
+| `class_code` | TEXT | 班级编码（如 `01`） |
 | `head_teacher` | TEXT | 班主任姓名 |
 | `description` | TEXT | 班级描述 |
 | `created_at` | DATETIME DEFAULT CURRENT_TIMESTAMP | 创建时间 |
 
-### 8.10 索引
+### 8.10 `teacher_classes` — 教师-班级关联表
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `id` | INTEGER PK AUTO | 主键，自增 |
+| `teacher_id` | TEXT NOT NULL | 教师 ID（外键 → `users.id`） |
+| `class_id` | INTEGER NOT NULL | 班级 ID（外键 → `classes.id`） |
+| — | UNIQUE(teacher_id, class_id) | 联合唯一约束 |
+
+### 8.11 `parent_students` — 家长-学生关联表
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `id` | INTEGER PK AUTO | 主键，自增 |
+| `parent_id` | TEXT NOT NULL | 家长 ID（外键 → `users.id`） |
+| `student_id` | TEXT NOT NULL | 学生 ID（外键 → `users.id`） |
+| — | UNIQUE(parent_id, student_id) | 联合唯一约束 |
+
+### 8.12 `parent_messages` — 家校留言表
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `id` | INTEGER PK AUTO | 主键，自增 |
+| `student_id` | TEXT NOT NULL | 关联学生 ID |
+| `sender_type` | TEXT NOT NULL | 发送方类型（家长/教师） |
+| `sender_id` | TEXT | 发送人 ID |
+| `content` | TEXT NOT NULL | 留言内容 |
+| `reply_to` | INTEGER | 回复的目标留言 ID |
+| `read_status` | INTEGER DEFAULT 0 | 已读状态 |
+| `created_at` | DATETIME DEFAULT CURRENT_TIMESTAMP | 创建时间 |
+
+### 8.13 `sessions` — 会话表（Cookie 认证）
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `session_id` | TEXT PK | 会话 ID（64 位随机 hex，存于 HttpOnly Cookie） |
+| `user_id` | TEXT NOT NULL | 用户 ID |
+| `role_id` | INTEGER NOT NULL | 角色 ID |
+| `created_at` | INTEGER NOT NULL | 创建时间戳 |
+| `expires_at` | INTEGER NOT NULL | 过期时间戳 |
+| `is_parent` | INTEGER DEFAULT 0 | 是否为家长会话 |
+| `student_id` | TEXT | 家长会话当前查看的学生 ID |
+
+### 8.14 索引
 
 | 索引名 | 表 | 字段 | 用途 |
 |--------|----|------|------|
@@ -520,36 +606,43 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 | `idx_users_role_id` | users | role_id | 加速按角色筛选 |
 | `idx_points_records_student_id` | points_records | student_id | 加速按学生查积分记录 |
 | `idx_evaluations_student_id` | evaluations | student_id | 加速按学生查评价 |
+| `idx_parent_messages_student_id` | parent_messages | student_id | 加速按学生查留言 |
+| `idx_sessions_user_id` | sessions | user_id | 加速按用户查会话 |
+| `idx_sessions_expires_at` | sessions | expires_at | 加速会话过期清理 |
 
 ---
 
 ## 9. 默认账号
 
-系统初始化时通过 `INSERT OR IGNORE` 写入 3 个默认账号，密码以 SHA256 哈希存储：
+系统初始化时通过 `INSERT OR IGNORE` 写入 4 个默认账号：
 
 | 角色 | 用户名 | 密码 | 姓名 | 班级 | 初始积分 |
 |------|--------|------|------|------|----------|
 | 管理员 | `admin` | `admin123` | 管理员 | 系统管理 | 0 |
 | 教师 | `teacher` | `teacher123` | 王老师 | 高二(1)班 | 0 |
 | 学生 | `student` | `student123` | 张同学 | 高二(1)班 | 150 |
+| 家长 | `parent` | `parent123` | 张同学家长 | — | 0 |
 
-> **安全提示**：生产环境部署后请立即修改默认密码。密码在数据库中以 SHA256 哈希存储，例如 `admin123` 的哈希值为 `240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9`。
+> **安全提示**：生产环境部署后请立即修改默认密码。种子账号的密码以旧版 SHA-256 哈希存储（如 `admin123` → `240be518...`）；通过接口新设置/修改的密码自动使用 PBKDF2-SHA256（10 万次迭代 + 随机盐），登录校验时两种格式均自动识别，旧账号修改一次密码即完成升级。
 
 ---
 
 ## 10. 部署指南
 
-### 10.1 启动服务器
+### 10.0 免编译部署（推荐）
 
-#### 直接启动
+从 [Releases](https://github.com/JingWen983/campus-master/releases) 下载最新 zip 包，内含已编译的 `server.exe`（静态链接，无需额外 DLL）、前端构建产物 `frontend/dist/` 和 `config.json`，解压后直接运行即可。
+
+### 10.1 启动服务器
 
 ```bash
 server.exe
 ```
 
-#### 使用 `start_server.bat`（推荐）
+- 启动前确保 `frontend/dist/` 与 `server.exe` 同级存在（Release 包已包含）
+- 默认监听 `http://0.0.0.0:8080`
 
-`start_server.bat` 提供崩溃自动重启能力：
+**崩溃自动重启（可选）**：如需无人值守运行，可自建重启脚本（此类脚本含机器路径，不入库）：
 
 ```bat
 @echo off
@@ -561,21 +654,13 @@ timeout /t 5 /nobreak >nul
 goto loop
 ```
 
-- 服务器异常退出后，等待 **5 秒**自动重启
-- 适合长期无人值守运行
+### 10.2 开机自启（可选）
 
-### 10.2 开机自启
-
-使用 `install_autostart.bat` 注册 Windows 任务计划：
+使用 Windows 任务计划注册（按实际路径调整）：
 
 ```bat
-schtasks /create /tn "CampusManagementServer" /tr "\"%SCRIPT_DIR%\start_server.bat\"" /sc onlogon /rl highest /f
+schtasks /create /tn "CampusManagementServer" /tr "\"C:\path\to\start_server.bat\"" /sc onlogon /rl highest /f
 ```
-
-- **任务名称**：`CampusManagementServer`
-- **触发条件**：用户登录时（`/sc onlogon`）
-- **运行权限**：最高权限（`/rl highest`）
-- **需要管理员权限运行**此脚本
 
 **卸载自启命令**：
 
@@ -615,49 +700,29 @@ http://<服务器IP>:8080/
 
 ## 11. 测试说明
 
-项目提供 3 个 Python 测试脚本，覆盖功能、前端、权限三个维度。
+### 11.1 持续集成检查（CI）
 
-### 11.1 `test_production.py` — 生产环境综合测试
+推送到 `main` 或提交 Pull Request 时，GitHub Actions（`.github/workflows/ci.yml`）自动运行：
 
-**测试范围**：75 项测试用例，覆盖：
+- **前端**：`npm ci` → `vue-tsc` 类型检查 → Vite 生产构建（含 Mock 模式参数）
+- **后端**：Windows 环境下按 Release 同源命令完整编译 9 个 C++ 源文件并链接 `server.exe`（编译冒烟）
 
-- **健康检查**：服务器连通性、基础接口可用性
-- **认证模块**：登录/注册/Token 验证/登出
-- **前端渲染**：4 个 HTML 页面加载与基础结构
-- **API CRUD**：用户/积分/评价/商城/班级的增删改查
-- **权限控制**：跨角色访问拦截
-- **数据持久化**：SQLite 数据落盘验证
-- **并发测试**：多线程请求稳定性
-- **错误处理**：异常输入、边界条件
-
-### 11.2 `test_frontend_redesign.py` — 前端重构验证测试
-
-**测试范围**：28 项测试用例，覆盖：
-
-- **页面渲染**：HTML 结构、样式加载、脚本执行
-- **交互功能**：登录跳转、菜单切换、表单提交
-- **移动端适配**：响应式布局、触摸操作
-- **未登录重定向**：无 Token 访问自动跳转登录页
-
-### 11.3 `test_permissions.py` — 权限漏洞专项测试
-
-**测试范围**：权限安全专项验证，覆盖：
-
-- 越权访问检测（学生访问管理员接口）
-- Token 伪造/篡改检测
-- 权限提升检测
-- 跨角色数据访问检测
-
-### 11.4 运行测试
+### 11.2 本地验证
 
 ```bash
-# 确保服务器已启动
-python test_production.py
-python test_frontend_redesign.py
-python test_permissions.py
+# 前端类型检查 + 构建
+cd frontend && npm ci && npm run build
+
+# 后端完整编译（命令见第 5.3 节）
 ```
 
-> **前置条件**：测试脚本依赖 Python 3 + `requests` 库，运行前需确保服务器已启动并可访问。
+### 11.3 历史测试脚本
+
+早期版本曾提供 Python E2E 测试脚本（`test_production.py` 等，覆盖认证/CRUD/权限/并发），后随仓库安全清理移出版本库。如需参考，可从历史提交 `aa5ca6a` 中查看：
+
+```bash
+git show aa5ca6a:test_production.py
+```
 
 ---
 
@@ -665,7 +730,12 @@ python test_permissions.py
 
 ### 相关文档
 
+- `docs/design_document.md` — 系统设计文档
+- `docs/database_design.md` — 数据库设计说明
 - `docs/user_manual.md` — 用户使用手册
+- `docs/maintenance_manual.md` — 维护手册
+- `docs/sqlite_setup.md` — SQLite 构建说明
+- 在线 Demo（纯前端 Mock）：https://jingwen983.github.io/campus-master/
 
 ### 关键依赖版本
 
@@ -673,10 +743,15 @@ python test_permissions.py
 |------|------|------|
 | cpp-httplib | 单头文件版 | HTTP 服务器 |
 | nlohmann/json | 单头文件版 | JSON 解析 |
-| SQLite3 | amalgamation 版 | 嵌入式数据库 |
-| Vue 3 | CDN 版（本地化） | 前端框架 |
-| Tailwind CSS | CDN 版（本地化） | CSS 框架 |
-| ECharts | CDN 版（本地化） | 图表库 |
+| SQLite3 | amalgamation 版 | 嵌入式数据库（仓库内静态编译） |
+| Vue 3 | ^3.4 | 前端框架（npm + Vite 构建） |
+| TypeScript | ^5.4 | 前端类型系统 |
+| Vite | ^5.2 | 前端构建工具 |
+| Tailwind CSS | ^3.4 | CSS 框架（npm + PostCSS 构建） |
+| ECharts | ^5.5 | 图表库（npm） |
+| FontAwesome Free | ^6.5 | 图标库（npm） |
+
+> 注：依赖版本以 `frontend/package.json` 为准。
 
 ### 许可声明
 
