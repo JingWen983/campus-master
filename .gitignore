@@ -19,15 +19,26 @@
 *.VC.db
 *.VC.opendb
 
-# 测试脚本与产物（不入库）
+# 测试脚本与产物（不入库，仓库仅保留源代码）
 test_*.py
+test_*.js
+test_*.ts
 verify_*.py
 check_*.py
+*_test.py
+*_test.ts
+conftest.py
+tests/
+test/
 test_*.csv
 test_*.png
 test_*.exe
 screenshots/
-*_test.py
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
 
 # 冗余压缩包与重复源码
 *.zip
