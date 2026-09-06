@@ -51,7 +51,7 @@
 
 | 层级 | 技术选型 | 说明 |
 |------|----------|------|
-| **后端** | C++11 + cpp-httplib | 单头文件 HTTP 服务器，轻量高效 |
+| **后端** | C++17 + cpp-httplib | 单头文件 HTTP 服务器，轻量高效 |
 | **数据库** | SQLite3 | 持久化存储，数据落盘到 `campus_system.db` |
 | **前端** | Vue 3 SFC + TypeScript | Vite 多入口构建，5 个独立 SPA（登录/管理员/教师/学生/家长） |
 | **样式** | Tailwind CSS | 实用优先的 CSS 框架（npm + PostCSS 构建） |
@@ -214,7 +214,7 @@ comptation/
 
 ### 5.1 环境要求
 
-- **编译器**：MinGW-w64 g++（支持 C++11，CI 使用 gcc 14.2.0 验证通过）
+- **编译器**：MinGW-w64 g++（C++17 标准，CI 使用 gcc 14.2.0 验证通过）
 - **Node.js**：20+（含 npm，仅前端构建需要）
 - **SQLite3**：无需安装，仓库内自带 amalgamation 源码（`sqlite3.c`），直接静态编译
 - **操作系统**：Windows（使用 WinSock 网络库；CI 与 Release 均在 windows-latest 上构建）
@@ -249,18 +249,18 @@ npm run build # vue-tsc 类型检查 + vite build → dist/
 gcc -c sqlite3.c -o sqlite3.o -O2
 
 # 2. 编译 9 个 C++ 源文件
-g++ -c main.cpp          -o main.o          -std=c++11 -O2 -I.
-g++ -c models.cpp        -o models.o        -std=c++11 -O2 -I.
-g++ -c logger.cpp        -o logger.o        -std=c++11 -O2 -I.
-g++ -c routes_static.cpp -o routes_static.o -std=c++11 -O2 -I.
-g++ -c routes_public.cpp -o routes_public.o -std=c++11 -O2 -I.
-g++ -c routes_admin.cpp  -o routes_admin.o  -std=c++11 -O2 -I.
-g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++11 -O2 -I.
-g++ -c routes_student.cpp -o routes_student.o -std=c++11 -O2 -I.
-g++ -c routes_parent.cpp -o routes_parent.o -std=c++11 -O2 -I.
+g++ -c main.cpp          -o main.o          -std=c++17 -O2 -I.
+g++ -c models.cpp        -o models.o        -std=c++17 -O2 -I.
+g++ -c logger.cpp        -o logger.o        -std=c++17 -O2 -I.
+g++ -c routes_static.cpp -o routes_static.o -std=c++17 -O2 -I.
+g++ -c routes_public.cpp -o routes_public.o -std=c++17 -O2 -I.
+g++ -c routes_admin.cpp  -o routes_admin.o  -std=c++17 -O2 -I.
+g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++17 -O2 -I.
+g++ -c routes_student.cpp -o routes_student.o -std=c++17 -O2 -I.
+g++ -c routes_parent.cpp -o routes_parent.o -std=c++17 -O2 -I.
 
 # 3. 链接生成 server.exe（静态链接 MinGW 运行时，无外部 DLL 依赖）
-g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++11 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
+g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++17 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
 ```
 
 > **说明**：
