@@ -1,6 +1,9 @@
 // models.cpp - 全局数据定义和辅助函数实现
-#include "models.h"
+// 注意包含顺序：logger.h（引入 windows.h）必须在 models.h 之前。
+// models.h 中的 using namespace std 会把 std::byte 注入全局作用域，
+// 若 windows.h 在其之后解析，rpcndr.h 的 ::byte 将产生二义性编译错误（C++17）
 #include "logger.h"
+#include "models.h"
 #include <unordered_map>
 
 using namespace std;

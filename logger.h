@@ -12,6 +12,10 @@
 #include <mutex>
 
 #ifdef _WIN32
+// winsock2.h 必须在 windows.h 之前包含，否则产生
+// "Please include winsock2.h before windows.h" 警告（httplib.h 依赖 WinSock）
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #endif
 
