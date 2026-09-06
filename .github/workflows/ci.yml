@@ -51,6 +51,13 @@ jobs:
           test -f dist/index.html || { echo "ERROR: dist/index.html missing"; exit 1; }
           echo "Frontend build OK"
 
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 14
+
   backend:
     name: 后端编译冒烟
     runs-on: windows-latest
@@ -86,3 +93,55 @@ jobs:
           test -f server.exe || { echo "ERROR: server.exe missing"; exit 1; }
           ls -lh server.exe
           echo "Backend build OK"
+
+      - name: Upload server.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-exe
+          path: server.exe
+          retention-days: 14
+
+  # 前端 + 后端都通过后，自动组装完整可运行包（仅 main push；PR 只做检查）
+  package:
+    name: 自动打包开发版产物
+    needs: [frontend, backend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout（获取 config.json 与文档）
+        uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: release/frontend/dist
+
+      - name: Download server.exe
+        uses: actions/download-artifact@v4
+        with:
+          name: server-exe
+          path: release
+
+      - name: Assemble release folder
+        run: |
+          chmod +x release/server.exe
+          cp config.json README.md release/
+          [ -d docs ] && cp -r docs release/ || true
+          echo "commit: ${{ github.sha }}" > release/VERSION.txt
+          echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
+          ls -R release | head -30
+
+      - name: Zip package
+        run: |
+          cd release
+          zip -qr ../campus-energy-station-dev.zip .
+          cd ..
+          ls -lh campus-energy-station-dev.zip
+
+      - name: Upload dev package
+        uses: actions/upload-artifact@v4
+        with:
+          name: campus-energy-station-dev
+          path: campus-energy-station-dev.zip
+          retention-days: 14
