@@ -298,7 +298,9 @@ void register_public_routes(httplib::Server& svr) {
             item["description"] = row.value("description", "");
             item["cost"] = row.value("cost", 0);
             item["stock"] = row.value("stock", 0);
-            item["image_url"] = row.value("image_url", "");
+            // image_url 在库中可为 NULL（种子商品即未填写）；
+            // value() 遇到 null 与 string 默认值类型不符会抛 type_error 导致 500
+            item["image_url"] = row.at("image_url").is_null() ? json("") : row.at("image_url");
             items.push_back(item);
         }
 
