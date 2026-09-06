@@ -202,7 +202,7 @@ function fillTestAccount(u: string, p: string) {
                 <button type="button" @click="fillTestAccount('parent', 'parent123')"
                   class="role-chip group p-4 bg-amber-50/80 border border-amber-200/60 rounded-2xl text-center hover:border-amber-400">
                   <div class="w-10 h-10 mx-auto rounded-xl bg-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-                    <i class="fa-solid fa-family text-white"></i>
+                    <i class="fa-solid fa-people-roof text-white"></i>
                   </div>
                   <div class="text-xs font-bold text-amber-700">家长</div>
                 </button>
