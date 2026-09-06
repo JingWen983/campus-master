@@ -22,6 +22,11 @@ public:
             std::cerr << "无法打开数据库: " << sqlite3_errmsg(db_) << std::endl;
             return false;
         }
+        // 并发修复：服务器为多线程（ThreadPool 共享本连接），
+        // 无 busy_timeout 时并发写会立即返回 SQLITE_BUSY（database is locked）
+        sqlite3_busy_timeout(db_, 5000);
+        // WAL 模式：读写不互斥，进一步降低并发下的锁冲突
+        execute("PRAGMA journal_mode=WAL;");
         std::cout << "SQLite 数据库连接成功: " << path << std::endl;
         return true;
     }

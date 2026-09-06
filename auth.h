@@ -192,44 +192,44 @@ inline bool create_session(const std::string& session_id, const std::string& use
     time_t now = time(nullptr);
     time_t expires = now + expiry_hours * 3600;
 
-    // 学生 ID 字段的 SQL 文本表示（NULL 或 'escaped_id'）
-    std::string student_id_sql = student_id.empty() ? std::string("NULL")
-                                                     : (std::string("'") + db.escapeString(student_id) + "'");
+    // 顺带清理过期会话，防止 sessions 表无限增长
+    db.execute_bind("DELETE FROM sessions WHERE expires_at < ?",
+                    {SqliteDb::Bind(static_cast<long long>(now))});
 
-    char sql[1024];
-    snprintf(sql, sizeof(sql),
+    // 会话 SQL 使用参数化查询：session_id / user_id 来自 Cookie，属用户可控输入，
+    // 不应拼接进 SQL（沿用 sqlite_wrapper.h 中 execute_bind 的约定）
+    const char* sql =
         "INSERT OR REPLACE INTO sessions (session_id, user_id, role_id, created_at, expires_at, is_parent, student_id) "
-        "VALUES ('%s', '%s', %d, %ld, %ld, %d, %s)",
-        db.escapeString(session_id).c_str(),
-        db.escapeString(user_id).c_str(),
-        role_id,
-        static_cast<long>(now),
-        static_cast<long>(expires),
-        is_parent ? 1 : 0,
-        student_id_sql.c_str()
-    );
-    return db.execute(sql);
+        "VALUES (?, ?, ?, ?, ?, ?, ?)";
+    std::vector<SqliteDb::Bind> params;
+    params.push_back(SqliteDb::Bind(session_id));
+    params.push_back(SqliteDb::Bind(user_id));
+    params.push_back(SqliteDb::Bind(role_id));
+    params.push_back(SqliteDb::Bind(static_cast<long long>(now)));
+    params.push_back(SqliteDb::Bind(static_cast<long long>(expires)));
+    params.push_back(SqliteDb::Bind(is_parent ? 1 : 0));
+    if (student_id.empty()) {
+        params.push_back(SqliteDb::Bind::null());
+    } else {
+        params.push_back(SqliteDb::Bind(student_id));
+    }
+    return db.execute_bind(sql, params);
 }
 
 // 验证会话有效性，返回 user_id（成功）或空串（失败）
 inline std::string verify_session(const std::string& session_id) {
     if (session_id.empty()) return "";
 
-    char sql[1024];
-    snprintf(sql, sizeof(sql),
-        "SELECT user_id, expires_at FROM sessions WHERE session_id = '%s'",
-        db.escapeString(session_id).c_str());
-    auto result = db.query(sql);
+    auto result = db.query_bind("SELECT user_id, expires_at FROM sessions WHERE session_id = ?",
+                                {SqliteDb::Bind(session_id)});
     if (result.empty()) return "";
 
     long expires_at = result[0].value("expires_at", 0L);
     time_t now = time(nullptr);
     if (now > expires_at) {
         // 会话已过期，删除
-        char del_sql[256];
-        snprintf(del_sql, sizeof(del_sql), "DELETE FROM sessions WHERE session_id = '%s'",
-                 db.escapeString(session_id).c_str());
-        db.execute(del_sql);
+        db.execute_bind("DELETE FROM sessions WHERE session_id = ?",
+                        {SqliteDb::Bind(session_id)});
         return "";
     }
 
