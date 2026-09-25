@@ -160,15 +160,22 @@ jobs:
           # 写入 release notes（heredoc 顶格，避免前导空格）
           cat > release_notes.md <<'EOF'
           # 校园文明能量站（Campus Energy Station）
-
-          首个正式发布版本。
-
+          
+          版本：${{ steps.ver.outputs.tag }}
+          
+          ## 本版要点
+          - **安全修复（批次 0，已提交）**：修复 PBKDF2 认证绕过（任意口令可登录）；移除可预测的默认凭据，改为首启由 CSPRNG 生成随机初始口令并强制首登改密；CI 交付包不再打入 Mock 前端（此前包内前端与 `server.exe` 永久失联）。
+          - **并发与数据正确性（批次 1）**：数据库连接改为**每线程一条**（此前 8 个 worker 线程共享同一 `sqlite3*`）；全局共享容器与索引加一把互斥锁；用户/积分查找不再返回可悬垂的裸指针，改为值拷贝或受锁回调；兑换改为单事务原子提交并校验受影响行数（此前可双花/无故扣库存）；登录失败锁定改为不可伪造的客户端标识（此前伪造 `X-Forwarded-For` 即可绕过）并覆盖家长端；所有 4xx/5xx 返回结构化 JSON（此前未处理异常为 500 + 空响应体，前端完全静默）。
+          - **已知未闭合项**（详见仓库 `docs/audit/`）：批次 2 的若干数据正确性与一致性条目仍未修复。
+          - 更详细的审计与验证证据见仓库内 `docs/audit/`（**不随本包分发**）。
+          
           ## 包含内容
           - `server.exe` — C++ 后端可执行文件（SQLite 静态链接，无需额外 dll）
-          - `frontend/dist/` — Vite + Vue 3 SFC 构建产物（5 个 HTML 入口 + hashed assets）
+          - `frontend/dist/` — Vite + Vue 3 SFC 构建产物
           - `config.json` — 运行时配置
           - `README.md` — 项目文档
           - `docs/` — 用户手册与安装说明（**不含** `docs/audit/`：审计报告与证据不随包分发）
+          - `VERSION.txt` — 版本号 / 构建时间 / 提交号
 
           ## 快速开始
           1. 解压 zip 到任意目录

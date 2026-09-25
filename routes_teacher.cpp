@@ -6,6 +6,42 @@
 #include <sstream>
 #include <unordered_map>
 
+// ===========================================================================
+// 批次 1 / 1-5（B9）：对象级归属校验（教师只能操作自己任课班级的学生）
+// ---------------------------------------------------------------------------
+// 为什么必须有：`check_permission_middleware(..., "student:manage")` 只回答
+// 「这个角色有没有该权限」——教师与管理员都有。**它不回答「这个对象是不是你的」**。
+// 修复前实测：任意教师可以改/删/加任意班级的学生、给任意学生加减积分、
+// 甚至回复别人班家长留言，全部 HTTP 200。
+//
+// 判定统一走 models 层的 teacher_owns_student / teacher_owns_class_name
+// （teacher_classes JOIN classes JOIN users），失败即拒绝（fail-closed）。
+// 返回 403 的响应体与既有权限门禁同族，便于前端统一判定。
+static bool require_teacher_owns_class(const httplib::Request& req, httplib::Response& res,
+                                       const std::string& teacher_id, const std::string& class_name) {
+    if (class_name.empty() || !teacher_owns_class_name(teacher_id, class_name)) {
+        res.status = 403;
+        res.set_content(json{{"code", 403}, {"msg", "无权操作该班级的学生"}}.dump(), "application/json");
+        return false;
+    }
+    return true;
+}
+
+static bool require_teacher_owns_student(const httplib::Request& req, httplib::Response& res,
+                                         const std::string& teacher_id, const std::string& student_id) {
+    if (student_id.empty() || !teacher_owns_student(teacher_id, student_id)) {
+        res.status = 403;
+        res.set_content(json{{"code", 403}, {"msg", "无权操作该学生（不在您任课的班级）"}}.dump(), "application/json");
+        return false;
+    }
+    return true;
+}
+
+// 取当前会话的教师 id（空表示无有效会话）。写端点在归属校验前必须先拿到它。
+static std::string current_teacher_id(const httplib::Request& req) {
+    return verify_session(get_cookie_value(req, "sid"));
+}
+
 void register_teacher_routes(httplib::Server& svr) {
     // 教师获取自己绑定的班级列表 API（需要教师权限）
     svr.Get("/api/teacher/my-classes", [](const httplib::Request& req, httplib::Response& res) {
@@ -126,24 +162,29 @@ void register_teacher_routes(httplib::Server& svr) {
                 return;
             }
 
-            // 创建新学生 - 生成字符串 ID
-            string new_id = generate_user_id(3, grade_code, class_code);
+            // 批次 1 / 1-5（B9）：只能把学生建到**自己任课**的班级
+            const std::string teacher_id = current_teacher_id(req);
+            if (!require_teacher_owns_class(req, res, teacher_id, className)) return;
+
+            // 创建新学生（批次 1 / N2：原子建号并落库，避免并发下同名/同 id 互相覆盖）
             // 安全修复 V13：默认密码由服务端生成随机强密码并返回，不再硬编码 123456
             std::string default_password = generate_random_password();
-            User new_user = {
-                new_id,
-                studentId,
-                hash_password(default_password),
-                3,
-                name,
-                className,
-                points,
-                studentId
-            };
-            users.push_back(new_user);
-            update_user_index(new_user);
-
-            save_user_to_db(new_user);
+            string new_id;
+            bool added = add_user_record_persisted([&](User& nu) {
+                nu.id = generate_user_id(3, grade_code, class_code);
+                nu.username = studentId;
+                nu.password_hash = hash_password(default_password);
+                nu.role_id = 3;
+                nu.name = name;
+                nu.className = className;
+                nu.points = points;
+                nu.student_id = studentId;
+            }, new_id, studentId);
+            if (!added) {
+                response = {{"code", 400}, {"msg", "学号已存在或添加冲突"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
             response = {
                 {"code", 200},
@@ -190,37 +231,54 @@ void register_teacher_routes(httplib::Server& svr) {
                 return;
             }
 
-            auto student_it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == student_id && u.role_id == 3;
+            // 批次 1 / 1-5（B9）：只能改**自己任课班级**的学生，
+            // 且不允许把学生改到别人任课的班级（否则等于把人「送」进别人的班）。
+            const std::string teacher_id = current_teacher_id(req);
+            if (!require_teacher_owns_student(req, res, teacher_id, student_id)) return;
+            if (!require_teacher_owns_class(req, res, teacher_id, className)) return;
+
+            // 批次 1 / B5：一次持锁内完成「存在性校验 → 改内存 → 写 DB → 重建索引」，
+            // 不再在锁外通过裸指针改内存（原实现是 find_if 拿 User* 后直接赋值）。
+            bool found = false;
+            bool db_ok = false;
+            std::string out_name, out_class;
+            int out_points = 0;
+            with_user_record(student_id, [&](User& u) -> bool {
+                if (u.role_id != 3) return false;
+                found = true;
+                u.name = name;
+                u.className = className;
+                if (points != -999999) u.points = points;
+                db_ok = db.execute_bind(
+                    "UPDATE users SET name = ?, className = ?, points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    {SqliteDb::Bind(name), SqliteDb::Bind(className),
+                     SqliteDb::Bind((long long)u.points), SqliteDb::Bind(student_id)});
+                rebuild_user_indexes_locked();
+                out_name = u.name;
+                out_class = u.className;
+                out_points = u.points;
+                return db_ok;
             });
 
-            if (student_it == users.end()) {
+            if (!found) {
                 response = {{"code", 404}, {"msg", "学生不存在"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
-
-            student_it->name = name;
-            student_it->className = className;
-            if (points != -999999) {
-                student_it->points = points;
+            if (!db_ok) {
+                response = {{"code", 500}, {"msg", "学生信息更新失败"}};
+                res.set_content(response.dump(), "application/json");
+                return;
             }
-
-            db.execute_bind(
-                "UPDATE users SET name = ?, className = ?, points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                {SqliteDb::Bind(name), SqliteDb::Bind(className),
-                 SqliteDb::Bind((long long)student_it->points), SqliteDb::Bind(student_id)});
-
-            update_user_index(*student_it);
 
             response = {
                 {"code", 200},
                 {"msg", "学生信息更新成功"},
                 {"data", {
-                    {"id", student_it->id},
-                    {"name", student_it->name},
-                    {"className", student_it->className},
-                    {"points", student_it->points}
+                    {"id", student_id},
+                    {"name", out_name},
+                    {"className", out_class},
+                    {"points", out_points}
                 }}
             };
 
@@ -247,19 +305,30 @@ void register_teacher_routes(httplib::Server& svr) {
             auto req_json = json::parse(req.body);
             string student_id = req_json.value("id", "");
 
-            // 查找并删除学生
-            auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == student_id && u.role_id == 3;
+            // 批次 1 / 1-5（B9）：只能删**自己任课班级**的学生
+            if (!require_teacher_owns_student(req, res, current_teacher_id(req), student_id)) return;
+
+            // 批次 1 / B6：一次持锁内完成「存在性校验 → 删除关联 → 删库 → erase → 重建索引」。
+            // erase 会让后续元素整体前移，必须在**同一临界区**内重建索引，
+            // 否则并发的用户查找会取到错误学生。
+            bool found = false;
+            bool db_ok = false;
+            with_user_record(student_id, [&](User& u) -> bool {
+                if (u.role_id != 3) return false;
+                found = true;
+                // DB 先删；成功后再同步内存 + 重建索引（R5：DB 先、内存后）
+                if (!delete_user_from_db(student_id)) return false;
+                for (auto it2 = users.begin(); it2 != users.end(); ++it2) {
+                    if (it2->id == student_id) { users.erase(it2); break; }
+                }
+                rebuild_user_indexes_locked();
+                db_ok = true;
+                return true;
             });
 
-            if (it == users.end()) {
+            if (!found) {
                 response = {{"code", 404}, {"msg", "学生不存在"}};
             } else {
-                users.erase(it);
-                // 安全修复 B6：erase 会让后续元素整体前移，必须重建用户索引，
-                // 否则 user_id_map 仍存旧下标 → 后续 find_user_by_id 返回错误学生。
-                delete_user_from_db(student_id);
-                rebuild_user_indexes();
                 response = {{"code", 200}, {"msg", "学生删除成功"}};
             }
 
@@ -295,69 +364,96 @@ void register_teacher_routes(httplib::Server& svr) {
                 return;
             }
 
-            // 查找学生
-            auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == student_id && u.role_id == 3;
-            });
+            // 批次 1 / 1-5（B9）：只能给**自己任课班级**的学生加减积分
+            // （修复前任意教师可给任意学生加/扣分，是权限提升面）
+            const std::string teacher_id = current_teacher_id(req);
+            if (!require_teacher_owns_student(req, res, teacher_id, student_id)) return;
 
-            if (it == users.end()) {
-                response = {{"code", 404}, {"msg", "学生不存在"}};
-                res.set_content(response.dump(), "application/json");
-                return;
-            }
-
-            // 检查积分是否足够
-            if (type == "deduct" && it->points < points) {
-                response = {{"code", 400}, {"msg", "积分不足"}};
-                res.set_content(response.dump(), "application/json");
-                return;
-            }
-
-            // 执行积分操作
-            if (type == "add") {
-                it->points += points;
-            } else if (type == "deduct") {
-                it->points -= points;
-            } else {
+            // 批次 1 / B3+B5：把「查找 → 校验积分 → 改分 → 落库」放进**一次**持锁的
+            // with_user_record 回调。修复前这三步分散在三处（find_if 拿裸指针、锁外判断、
+            // 锁外改值），并发扣分会各自基于陈旧 points 计算并互相覆盖（丢失扣减/超发）。
+            if (type != "add" && type != "deduct") {
                 response = {{"code", 400}, {"msg", "无效的操作类型"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
+            bool not_found = false;
+            bool not_enough = false;
+            bool db_ok = false;
+            int points_after = 0;
+            std::string student_name, student_class;
+            with_user_record(student_id, [&](User& u) -> bool {
+                if (u.role_id != 3) return false;          // 非学生
+                student_name = u.name;
+                student_class = u.className;
+                if (type == "deduct" && u.points < points) { not_enough = true; return false; }
+                int next = (type == "add") ? (u.points + points) : (u.points - points);
+                if (!update_user_points_in_db(u.id, next)) return false;   // DB 失败：不改内存
+                u.points = next;
+                points_after = next;
+                db_ok = true;
+                return true;
+            }, &not_found);
 
-            update_user_points_in_db(it->id, it->points);
+            if (not_found) {
+                response = {{"code", 404}, {"msg", "学生不存在"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (not_enough) {
+                response = {{"code", 400}, {"msg", "积分不足"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (!db_ok) {
+                response = {{"code", 500}, {"msg", "积分更新失败"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
             // 创建积分记录
             std::string session_id = get_cookie_value(req, "sid");
             string current_user_id = verify_session(session_id);
-            int new_record_id = points_records.size() + 1;
+            int new_record_id = 0;
             PointsRecord new_record = {
-                new_record_id,
+                0,
                 student_id,
                 type == "add" ? points : -points,
                 reason,
                 current_user_id,
                 get_current_time()
             };
-            points_records.push_back(new_record);
-
-            // 保存积分记录到数据库
-            db.execute_bind(
-                "INSERT INTO points_records (student_id, points, reason, operator_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                {SqliteDb::Bind(student_id),
-                 SqliteDb::Bind((long long)(type == "add" ? points : -points)),
-                 SqliteDb::Bind(reason), SqliteDb::Bind(current_user_id),
-                 SqliteDb::Bind(get_current_time())});
+            // 批次 1 / 伴-2'：记录 id 改由 DB 分配（last_insert_rowid），
+            // 不再用 points_records.size()+1 —— 后者重启即重号、且与库内真实 id 脱钩。
+            {
+                int affected = 0;
+                int rc = db.execute_bind_affected(
+                    "INSERT INTO points_records (student_id, points, reason, operator_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                    {SqliteDb::Bind(student_id),
+                     SqliteDb::Bind((long long)(type == "add" ? points : -points)),
+                     SqliteDb::Bind(reason), SqliteDb::Bind(current_user_id),
+                     SqliteDb::Bind(get_current_time())}, affected);
+                if (rc == 0 && affected == 1) {
+                    new_record_id = db.last_insert_rowid();
+                    new_record.id = new_record_id;
+                }
+            }
+            if (new_record_id > 0) {
+                // 内存记录追加（供统计/导出读取）——与库内使用同一个 id
+                std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
+                points_records.push_back(new_record);
+            }
 
             response = {
                 {"code", 200},
                 {"msg", "积分操作成功"},
                 {"data", {
-                    {"points", it->points},
+                    {"points", points_after},
                     {"record", {
                         {"id", new_record_id},
                         {"studentId", student_id},
-                        {"studentName", it->name},
-                        {"className", it->className},
+                        {"studentName", student_name},
+                        {"className", student_class},
                         {"points", type == "add" ? points : -points},
                         {"reason", reason},
                         {"time", get_current_time()},
@@ -484,12 +580,12 @@ void register_teacher_routes(httplib::Server& svr) {
                 return;
             }
 
-            // 查找学生
-            auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == student_id && u.role_id == 3;
-            });
+            // 批次 1 / 1-5（B9）：只能评价**自己任课班级**的学生
+            // （修复前任意教师可对任意学生写评价：评测数据被污染且属越权写）
+            if (!require_teacher_owns_student(req, res, current_teacher_id(req), student_id)) return;
 
-            if (it == users.end()) {
+            // 查找学生（批次 1 / B5：索引受锁查询 + 身份校验，不再遍历全局向量）
+            if (find_user_id_by_id_key(student_id).empty()) {
                 response = {{"code", 404}, {"msg", "学生不存在"}};
                 res.set_content(response.dump(), "application/json");
                 return;
@@ -932,28 +1028,30 @@ void register_teacher_routes(httplib::Server& svr) {
                     continue;
                 }
 
-                // 检查用户名是否已存在
-                if (find_user_by_username(student_id) != nullptr) {
+                // 检查用户名是否已存在（批次 1 / B5：索引受锁查询，不再返回裸指针）
+                if (!find_user_id_by_username(student_id).empty()) {
                     fail_count++;
                     errors.push_back({{"row", i + 2}, {"msg", "学号 " + student_id + " 已存在"}});
                     continue;
                 }
 
-                // 创建用户 - 生成字符串 ID（学生 ID 需要年级码/班级码，此处简化为不带年级班级码）
-                string new_id = generate_user_id(3, "", "");
-                User new_user;
-                new_user.id = new_id;
-                new_user.username = student_id;
-                new_user.password_hash = hash_password(password);
-                new_user.role_id = 3;
-                new_user.name = name;
-                new_user.className = className;
-                new_user.points = 0;
-                new_user.student_id = student_id;
-                users.push_back(new_user);
-                update_user_index(new_user);
-
-                save_user_to_db(new_user);
+                // 批次 1 / N2：原子建号并落库（唯一性校验 + 生成 id + 写 DB + 写内存一次持锁）
+                string new_id;
+                bool added = add_user_record_persisted([&](User& nu) {
+                    nu.id = generate_user_id(3, "", "");
+                    nu.username = student_id;
+                    nu.password_hash = hash_password(password);
+                    nu.role_id = 3;
+                    nu.name = name;
+                    nu.className = className;
+                    nu.points = 0;
+                    nu.student_id = student_id;
+                }, new_id, student_id);
+                if (!added) {
+                    fail_count++;
+                    errors.push_back({{"row", i + 2}, {"msg", "学号 " + student_id + " 已存在"}});
+                    continue;
+                }
                 success_count++;
             }
 
@@ -1063,6 +1161,11 @@ void register_teacher_routes(httplib::Server& svr) {
                 return;
             }
             string student_id = query_result[0].value("student_id", "");
+
+            // 批次 1 / 1-5（B9）：必须校验**该留言所属学生**在自己任课的班级。
+            // 修复前此处直接用原留言的 student_id 插入回复，完全没有归属校验
+            // → 任意教师可回复别人班家长的留言（实测 HTTP 200）。
+            if (!require_teacher_owns_student(req, res, teacher_id, student_id)) return;
 
             // 2. 插入教师回复
             if (!db.execute_bind(

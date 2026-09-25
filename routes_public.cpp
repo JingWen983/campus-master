@@ -25,24 +25,30 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
 
-            // 安全修复 V8：登录失败锁定
-            std::string lk = login_client_key(req, username);
-            if (!login_can_try(lk)) {
+            // 安全修复 V8 + 批次 1 / 1-6（B4）：登录失败锁定（IP 与账号**双键**）。
+            // 双键的理由：只用账号维度会被「分布式撞库打同一个账号」绕开；
+            // 只用 IP 维度会被「同一出口打多个账号」绕开，且 NAT 下容易误锁整片。
+            // 客户端标识由 login_client_ip() 提供 —— 默认不信任可伪造的 X-Forwarded-For。
+            const std::string ip_key = login_ip_key(req);
+            const std::string acct_key = login_account_key(username);
+            if (!login_can_try(ip_key) || !login_can_try(acct_key)) {
                 response = {{"code", 429}, {"msg", "登录尝试过于频繁，请稍后再试"}};
                 res.status = 429;
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
-            User* user = find_user_by_username(username);
-            if (!user) {
-                login_record_fail(lk);
+            // 批次 1 / B5：改为取拷贝（find_user_by_* 不再返回可在并发下悬垂的裸指针）
+            User user;
+            if (!find_user_by_username_copy(username, user)) {
+                login_record_fail(ip_key);
+                login_record_fail(acct_key);
                 response = {{"code", 401}, {"msg", "用户名或密码错误"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
-            bool password_match = verify_password(password, user->password_hash);
+            bool password_match = verify_password(password, user.password_hash);
             // 安全修复 V18（B2）：删除旧版「登录成功即就地升级为 PBKDF2」的自动升级链。
             // 依据 BATCH0_DESIGN_DECISIONS.md 决策①：在 B1 存在时这条链会把任何一次合法登录
             // 变成对 admin 的永久接管放大器；且存量 pbkdf2$ 记录「好坏同构」，无法在信息论上区分。
@@ -51,19 +57,21 @@ void register_public_routes(httplib::Server& svr) {
             // 注意：verify_password 的旧版裸 SHA256 兼容分支仍然保留，旧账号依然能登录，
             // 只是不再被静默改写其存储串。
             if (!password_match) {
-                login_record_fail(lk);
+                login_record_fail(ip_key);
+                login_record_fail(acct_key);
                 response = {{"code", 401}, {"msg", "用户名或密码错误"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
-            login_record_success(lk);
+            login_record_success(ip_key);
+            login_record_success(acct_key);
 
             // 生成会话并存入数据库（家长角色需标记 is_parent=true 以通过家长端中间件校验）
             cleanup_expired_sessions();
             std::string session_id = generate_session_id();
-            bool is_parent = (user->role_id == 4);
-            create_session(session_id, user->id, user->role_id, g_config.session_expiry_hours, is_parent, is_parent ? user->id : "");
+            bool is_parent = (user.role_id == 4);
+            create_session(session_id, user.id, user.role_id, g_config.session_expiry_hours, is_parent, is_parent ? user.id : "");
 
             // 设置 HttpOnly cookie
             int max_age = g_config.session_expiry_hours * 3600;
@@ -76,16 +84,16 @@ void register_public_routes(httplib::Server& svr) {
                 {"msg", "登录成功"},
                 {"data", {
                     {"user", {
-                        {"id", user->id},
-                        {"username", user->username},
-                        {"name", user->name},
-                        {"role_id", user->role_id},
-                        {"className", user->className},
+                        {"id", user.id},
+                        {"username", user.username},
+                        {"name", user.name},
+                        {"role_id", user.role_id},
+                        {"className", user.className},
                         // 安全修复 V18（B2）：告知客户端必须先改初始口令
-                        {"must_change_password", user->must_change_password}
+                        {"must_change_password", user.must_change_password}
                     }},
                     {"csrf_token", csrf},
-                    {"must_change_password", user->must_change_password}
+                    {"must_change_password", user.must_change_password}
                 }}
             };
 
@@ -146,7 +154,8 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
 
-            if (find_user_by_username(username) != nullptr) {
+            User existing_user;
+            if (find_user_by_username_copy(username, existing_user)) {
                 response = {{"code", 400}, {"msg", "用户名已存在"}};
                 res.set_content(response.dump(), "application/json");
                 return;
@@ -155,28 +164,35 @@ void register_public_routes(httplib::Server& svr) {
             // 使用 generate_user_id 生成符合规范的字符串 ID
             string grade_code = req_json.value("grade_code", "");
             string class_code = req_json.value("class_code", "");
-            string new_id = generate_user_id(role_id, grade_code, class_code);
 
-            User new_user = {
-                new_id,
-                username,
-                hash_password(password),
-                role_id,
-                name,
-                className,
-                0,
-                username
-            };
-            // 安全修复 V18（B2）：自助注册由**用户自己**设定口令，不需要首登改密。
-            // （struct User 的 must_change_password 默认值为 true，属 fail-safe 设计，故这里必须显式置 false）
-            new_user.must_change_password = false;
+            // 批次 1 / N2：改为「原子建号并落库」—— 唯一性校验、生成 id、写 DB、写内存、
+            // 重建索引全在一次持锁内完成。修复前是 push_back + update_user_index 后再单独
+            // save_user_to_db（且当时用 INSERT OR REPLACE），并发注册会互相覆盖：
+            // 实测 8 并发注册返回 8 个 200 而库内只剩 1 个用户。
+            std::string new_id;
+            bool added = add_user_record_persisted([&](User& nu) {
+                nu.id = generate_user_id(role_id, grade_code, class_code);
+                nu.username = username;
+                nu.password_hash = hash_password(password);
+                nu.role_id = role_id;
+                nu.name = name;
+                nu.className = className;
+                nu.points = 0;
+                nu.student_id = username;
+                // 安全修复 V18（B2）：自助注册由**用户自己**设定口令，不需要首登改密。
+                // （struct User 的 must_change_password 默认值为 true，属 fail-safe 设计，故这里必须显式置 false）
+                nu.must_change_password = false;
+            }, new_id, username);
 
-            users.push_back(new_user);
-            update_user_index(new_user);
+            if (!added) {
+                response = {{"code", 400}, {"msg", "用户名已存在或注册冲突，请更换用户名"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
-            save_user_to_db(new_user);
-
-            response = {{"code", 200}, {"msg", "注册成功"}, {"data", {"user_id", new_id}}};
+            // 注意：这里必须是对象形式 {"user_id", new_id}（花括号成对），
+            // 原写法 {"data", {"user_id", new_id}} 会把 data 序列化成数组 ["user_id", new_id]。
+            response = {{"code", 200}, {"msg", "注册成功"}, {"data", {{"user_id", new_id}}}};
 
         } catch (json::parse_error& e) {
             response = {{"code", 400}, {"msg", "请求数据格式错误"}};
@@ -197,9 +213,8 @@ void register_public_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
-        User* user = find_user_by_id(user_id);
-
-        if (!user) {
+        User user;
+        if (!find_user_by_id_copy(user_id, user)) {
             response = {{"code", 404}, {"msg", "用户不存在"}};
             res.set_content(response.dump(), "application/json");
             return;
@@ -210,21 +225,21 @@ void register_public_routes(httplib::Server& svr) {
         std::string sess_student_id;
         bool sess_is_parent;
         bool sess_ok = get_session_info(session_id, user_id, sess_role_id, sess_is_parent, sess_student_id);
-        int effective_role_id = (sess_ok && sess_is_parent) ? 4 : user->role_id;
-        std::string effective_name = (sess_ok && sess_is_parent) ? (user->name + "家长") : user->name;
+        int effective_role_id = (sess_ok && sess_is_parent) ? 4 : user.role_id;
+        std::string effective_name = (sess_ok && sess_is_parent) ? (user.name + "家长") : user.name;
 
         response = {
             {"code", 200},
             {"msg", "success"},
             {"data", {
-                {"id", user->id},
-                {"username", user->username},
+                {"id", user.id},
+                {"username", user.username},
                 {"name", effective_name},
                 {"role_id", effective_role_id},
-                {"className", user->className},
-                {"points", user->points},
+                {"className", user.className},
+                {"points", user.points},
                 // 安全修复 V18（B2）：前端据此在刷新后仍能识别「必须先改密」状态
-                {"must_change_password", user->must_change_password}
+                {"must_change_password", user.must_change_password}
             }}
         };
 
@@ -245,9 +260,8 @@ void register_public_routes(httplib::Server& svr) {
         }
         // 安全修复 V18（B2）：未改初始口令 → 403（白名单：改密/登出/me）
         if (!enforce_password_change(req, res)) return;
-        User* user = find_user_by_id(user_id);
-
-        if (!user) {
+        User user;
+        if (!find_user_by_id_copy(user_id, user)) {
             response = {{"code", 404}, {"msg", "用户不存在"}};
             res.set_content(response.dump(), "application/json");
             return;
@@ -257,9 +271,9 @@ void register_public_routes(httplib::Server& svr) {
             {"code", 200},
             {"msg", "success"},
             {"data", {
-                {"name", user->name},
-                {"className", user->className},
-                {"points", user->points}
+                {"name", user.name},
+                {"className", user.className},
+                {"points", user.points}
             }}
         };
         res.set_content(response.dump(), "application/json");
@@ -337,12 +351,6 @@ void register_public_routes(httplib::Server& svr) {
         }
         // 安全修复 V18（B2）：未改初始口令 → 403
         if (!enforce_password_change(req, res)) return;
-        User* user = find_user_by_id(user_id);
-        if (!user) {
-            response = {{"code", 404}, {"msg", "用户不存在"}};
-            res.set_content(response.dump(), "application/json");
-            return;
-        }
 
         try {
             auto req_json = json::parse(req.body);
@@ -372,37 +380,86 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
 
-            if (user->points < cost) {
+            // ====== 批次 1 / 1-4（B8）兑换原子性 ======
+            // 修复前的三处缺陷（均由独立验证实测）：
+            //   ① 检查与扣减非原子：`:375` 判 user->points < cost 与 `:396` user->points -= cost
+            //      之间隔着库存 UPDATE，两个并发请求会各自基于陈旧 points 放行 → 双花/超卖；
+            //   ② 扣库存的 UPDATE 结果被**丢弃**（`stock_ok` 只看 `:381-383` 的陈旧判断），
+            //      并发下 stock 已为 0 时该语句影响 0 行，却仍被判为成功 → 可**无故扣库存**；
+            //   ③ 扣库存与扣积分不在同一事务，中途失败会留下「扣了一样没扣另一样」。
+            // 现在：整段包在 RAII 事务里（任何提前 return / 异常都会自动回滚），
+            // 扣库存用 execute_bind_affected 校验**实际影响行数**，积分用 with_user_record
+            // 在一次持锁内完成「读-判断-改」，且仅在 DB 写入成功后才改内存值。
+            SqliteDb::Transaction txn(db);
+            if (!txn.active()) {
+                response = {{"code", 500}, {"msg", "服务暂时不可用，请稍后重试"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            // 先读当前积分（取拷贝，不跨锁持有裸指针）
+            User current;
+            if (!find_user_by_id_copy(user_id, current)) {
+                response = {{"code", 404}, {"msg", "用户不存在"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (current.points < cost) {
                 response = {{"code", 400}, {"msg", "积分不足！"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
-            bool stock_ok = true;
-            if (stock == 0) {
-                stock_ok = false;
-            } else if (stock > 0) {
-                db.execute_bind(
+            // 扣库存：必须确认**真的**扣掉了 1 件（0 行受影响 = 库存已被并发抢空）
+            if (stock >= 0) {
+                int affected = 0;
+                int rc = db.execute_bind_affected(
                     "UPDATE mall_items SET stock = stock - 1 WHERE id = ? AND stock > 0",
-                    {SqliteDb::Bind((long long)item_id)});
+                    {SqliteDb::Bind((long long)item_id)}, affected);
+                if (rc != 0 || affected != 1) {
+                    response = {{"code", 400}, {"msg", "商品库存不足"}};
+                    res.set_content(response.dump(), "application/json");
+                    return;   // 事务由 RAII 自动回滚
+                }
             }
 
-            if (!stock_ok) {
-                response = {{"code", 400}, {"msg", "商品库存不足"}};
+            // 扣积分：DB 先写。必须在**一次**持锁内完成「再次判断 + 扣减 + 落库」，
+            // 否则两个并发请求都可能在各自读到相同 points 后写成同一个值（丢失一次扣减）。
+            int new_points = 0;
+            bool db_ok = false;
+            with_user_record(user_id, [&](User& u) -> bool {
+                if (u.points < cost) return false;      // 锁内二次校验；失败则不修改
+                int next = u.points - cost;
+                if (!update_user_points_in_db(u.id, next)) return false;  // DB 失败：不改内存
+                u.points = next;
+                new_points = next;
+                db_ok = true;
+                return true;
+            });
+            if (!db_ok) {
+                response = {{"code", 400}, {"msg", "积分不足或扣减失败！"}};
+                res.set_content(response.dump(), "application/json");
+                return;   // RAII 回滚库存
+            }
+
+            if (!db.execute_bind(
+                    "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
+                    {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost), SqliteDb::Bind(get_current_time())})) {
+                response = {{"code", 500}, {"msg", "兑换记录写入失败"}};
+                res.set_content(response.dump(), "application/json");
+                return;   // RAII 回滚库存与积分
+            }
+
+            if (!txn.commit()) {
+                response = {{"code", 500}, {"msg", "兑换提交失败，已回滚"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
-            user->points -= cost;
-            update_user_points_in_db(user->id, user->points);
-            db.execute_bind(
-                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
-                {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost), SqliteDb::Bind(get_current_time())});
-
             response = {
                 {"code", 200},
                 {"msg", "兑换成功！"},
-                {"data", {{"remain_points", user->points}}}
+                {"data", {{"remain_points", new_points}}}
             };
         } catch (json::parse_error& e) {
             response = {{"code", 400}, {"msg", "请求数据格式错误"}};
@@ -451,8 +508,8 @@ void register_public_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
-        User* user = find_user_by_id(user_id);
-        if (!user) {
+        User user;
+        if (!find_user_by_id_copy(user_id, user)) {
             res.status = 404;
             response = {{"code", 404}, {"msg", "用户不存在"}};
             res.set_content(response.dump(), "application/json");
@@ -471,7 +528,7 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
             // ① 原口令校验（B1 修复后这一步才真正具备校验力）
-            if (!verify_password(old_password, user->password_hash)) {
+            if (!verify_password(old_password, user.password_hash)) {
                 res.status = 400;
                 response = {{"code", 400}, {"msg", "原密码错误"}};
                 res.set_content(response.dump(), "application/json");
@@ -509,7 +566,7 @@ void register_public_routes(httplib::Server& svr) {
                 }
             }
             // ⑤ 不得与用户名相同
-            if (new_password == user->username) {
+            if (new_password == user.username) {
                 res.status = 400;
                 response = {{"code", 400}, {"msg", "新密码不能与用户名相同"}};
                 res.set_content(response.dump(), "application/json");
@@ -518,26 +575,39 @@ void register_public_routes(httplib::Server& svr) {
 
             // ⑥ 落库：**单条 UPDATE** 同时写入新哈希并清除强制改密标记。
             // 不用 save_user_to_db 的 INSERT OR REPLACE —— 那会重建整行、把 created_at 重置为当前时间。
-            std::string prev_hash = user->password_hash;
-            bool prev_flag = user->must_change_password;
+            // 批次 1 / 交接缺陷②（H-②）：原实现只看 execute_bind 的布尔返回，无法区分
+            // 「语句执行成功」与「影响 0 行」—— 实测「先由外部删除该行、再改密」会返回
+            // HTTP 200「密码修改成功」而库内 0 行。现在用 execute_bind_affected 校验行数。
+            // 批次 1 / B5：内存写入放进 with_user_record 的一次持锁内，且**先 DB 后内存**，
+            // DB 失败时内存不动（原实现先改内存再靠手动回滚恢复）。
             std::string new_hash = hash_password(new_password);
-            bool saved = db.execute_bind(
-                "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                {SqliteDb::Bind(new_hash), SqliteDb::Bind(user->id)});
-            if (!saved) {
-                // 落库失败 → 回滚内存，避免内存与磁盘状态不一致
-                user->password_hash = prev_hash;
-                user->must_change_password = prev_flag;
+            bool db_ok = false;
+            int rows_changed = 0;
+            bool memory_updated = with_user_record(user_id, [&](User& u) -> bool {
+                int affected = 0;
+                int rc = db.execute_bind_affected(
+                    "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    {SqliteDb::Bind(new_hash), SqliteDb::Bind(u.id)}, affected);
+                rows_changed = affected;
+                if (rc != 0 || affected != 1) {
+                    return false;      // 0 行 = 记录已被删除/并发改动，必须如实失败
+                }
+                u.password_hash = new_hash;
+                u.must_change_password = false;
+                db_ok = true;
+                return true;
+            });
+            if (!db_ok) {
                 res.status = 500;
                 response = {{"code", 500}, {"msg", "密码保存失败，请重试"}};
                 res.set_content(response.dump(), "application/json");
+                Logger::error("改密失败：用户 " + user_id + " 的 UPDATE 影响行数=" +
+                              std::to_string(rows_changed) + "（预期 1）");
                 return;
             }
-            user->password_hash = new_hash;
-            user->must_change_password = false;
 
             // 只记录用户名，绝不记录口令（沿用「日志不记敏感信息」的既有约定）
-            Logger::info("用户 " + user->username + " 修改口令成功，已清除强制改密标记");
+            Logger::info("用户 " + user.username + " 修改口令成功，已清除强制改密标记");
             response = {{"code", 200}, {"msg", "密码修改成功"},
                         {"data", {{"must_change_password", false}}}};
         } catch (json::parse_error& e) {

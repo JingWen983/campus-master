@@ -193,12 +193,23 @@ int main() {
         if (users_table_is_old_schema()) {
             Logger::warning("检测到旧 schema（users.id 为 INTEGER），删除数据库文件并重建为新 schema (TEXT 主键)");
             db.close();
+            // 批次 1 / 伴-3（B27 变体）：本路径原先在两处失败时**只打日志不返回**，
+            // 于是会继续走到后续初始化（建表/迁移/种子/load_users_from_db）——
+            // 而它操作的是一个「删了一半/没打开」的库，最终仍照常 listen 对外服务。
+            // 与批次 0 已修的「db.open 失败即 fail-fast」保持同一语义。
             if (std::remove(g_config.db_path.c_str()) != 0) {
-                Logger::error("删除旧数据库文件失败: " + g_config.db_path);
+                Logger::error("删除旧数据库文件失败，拒绝继续启动（fail-fast）: " + g_config.db_path);
+                std::cerr << "[FATAL] 无法删除旧 schema 数据库文件: " << g_config.db_path
+                          << "\n        请检查文件占用/权限后重试（退出码 1）。" << std::endl;
+                return 1;
             }
             if (!db.open(g_config.db_path)) {
-                Logger::error("重新打开数据库失败");
+                Logger::error("重建数据库后重新打开失败，拒绝继续启动（fail-fast）: " + g_config.db_path);
+                std::cerr << "[FATAL] 旧 schema 库已删除但无法重建/重新打开: " << g_config.db_path
+                          << "\n        请检查磁盘空间/权限（退出码 1）。" << std::endl;
+                return 1;
             }
+            Logger::info("旧 schema 数据库已删除并重建成功");
         }
     } else {
         // 安全修复 V18（B2）：磁盘库打开失败**不再静默降级为内存库**。
@@ -461,6 +472,51 @@ int main() {
 
     // 8. 设置线程池
     svr.new_task_queue = [&]() { return new httplib::ThreadPool(g_config.thread_count); };
+
+    // ====== 批次 1 / 1-7：请求体上限（B14）======
+    // 修复前：httplib 的默认上限极大（CPPHTTPLIB_PAYLOAD_MAX_LENGTH 默认约 8MB × 1000），
+    // 任何未认证端点都可以用超大 body 让服务端读入内存 → 单请求即可放大资源占用。
+    // 这里收到 1 MiB：本项目的最大合法请求体是数据导入，实测远小于该值。
+    svr.set_payload_max_length(1 * 1024 * 1024);
+    Logger::info("已设置请求体上限 1 MiB（批次 1 / B14）");
+
+    // ====== 批次 1 / 1-7：统一错误通道（B10 + B12）======
+    // 为什么必须有：httplib 只在本文件唯一一处捕获未处理异常（httplib.h:3574-3580），
+    // 它的处理是 `res.status = 500; res.set_header("EXCEPTION_WHAT", ...)` ——
+    //   ① **不设置响应体**（真实缺陷是「500 + 空响应体」；EXCEPTION_WHAT 头在写响应头时
+    //      被 httplib.h:1981 显式 continue 跳过，**永不到达客户端**，故不存在头泄漏）；
+    //   ② 前端只对 401/403/429 做提示 → 500 空体完全静默，故障不可见。
+    // 同时在 handle 层，未匹配路由等也会产生 4xx/5xx 但同样没有统一结构。
+    // 现装一个全局 error_handler（httplib.h:3132 对 status>=400 统一调用），
+    // 为所有 4xx/5xx 补上**结构化 JSON 体**（与业务响应同族：code/msg），
+    // 使前端可以按 code 判定，且绝不回显内部路径/源码行号/异常原文。
+    // 注意：不覆盖已经写好 body 的响应（业务端点自己设的 JSON 保持不变）。
+    svr.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
+        if (!res.body.empty()) return;   // 已有 body：尊重业务/框架原样
+
+        json err;
+        switch (res.status) {
+            case 400: err = {{"code", 400}, {"msg", "请求参数错误"}}; break;
+            case 401: err = {{"code", 401}, {"msg", "未认证或会话已过期"}}; break;
+            case 403: err = {{"code", 403}, {"msg", "权限不足"}}; break;
+            case 404: err = {{"code", 404}, {"msg", "资源不存在"}}; break;
+            case 405: err = {{"code", 405}, {"msg", "请求方法不允许"}}; break;
+            case 413: err = {{"code", 413}, {"msg", "请求体过大"}}; break;
+            case 429: err = {{"code", 429}, {"msg", "请求过于频繁，请稍后再试"}}; break;
+            default:
+                if (res.status >= 500) {
+                    err = {{"code", 500}, {"msg", "服务器内部错误"}};
+                    // 细节只进服务端日志，绝不出现在响应里
+                    Logger::error("未处理的服务端错误: " + req.method + " " + req.path +
+                                  " -> " + std::to_string(res.status));
+                } else {
+                    err = {{"code", res.status}, {"msg", "请求未能完成"}};
+                }
+                break;
+        }
+        res.set_content(err.dump(), "application/json");
+    });
+    Logger::info("已启用统一错误通道：所有 4xx/5xx 返回结构化 JSON（批次 1 / B10+B12）");
 
     // 安全修复 V10：CSRF 校验在具体状态变更类路由内部通过 require_csrf() 完成
     // （当前 httplib 版本不支持 pre_routing_handler 全局中间件）

@@ -34,6 +34,16 @@ struct ServerConfig {
     int lockout_minutes = 30;
     // 安全修复 V10：是否启用 CSRF Token
     bool csrf_enabled = true;
+    // ====== 批次 1 / 1-6（B4）：X-Forwarded-For 信任边界 ======
+    // 默认 **false**：不信任任何客户端可自行设置的头。
+    // X-Forwarded-For 是客户端可任意伪造的，若直接用它作为客户端标识：
+    //   * 攻击者每次换一个伪造 XFF 值即可**绕过登录失败锁定**（每次都是「新客户端」）；
+    //   * 反向也可被滥用：伪造他人 IP 触发锁定，造成**误锁**（NAT/共享出口下连坐）。
+    // 只有在确实部署了可信反向代理（且已剥除外部 XFF）时才应开启。
+    bool trust_proxy_headers = false;
+    // 可信代理白名单（IP 字面量）。**即使 trust_proxy_headers=true，白名单为空也不采信 XFF**
+    // —— 避免「开了开关但没配白名单」这种等于全信任的误配置。
+    std::vector<std::string> trusted_proxies;
 };
 
 inline ServerConfig load_config(const std::string& config_path = "config.json") {
@@ -68,6 +78,12 @@ inline ServerConfig load_config(const std::string& config_path = "config.json") 
             config.lockout_minutes = cfg["security"].value("lockout_minutes", config.lockout_minutes);
             // 安全修复 V10：CSRF 开关
             config.csrf_enabled = cfg["security"].value("csrf_enabled", config.csrf_enabled);
+            // 批次 1 / 1-6（B4）：XFF 信任开关与可信代理白名单
+            config.trust_proxy_headers = cfg["security"].value("trust_proxy_headers", config.trust_proxy_headers);
+            if (cfg["security"].contains("trusted_proxies")) {
+                config.trusted_proxies =
+                    cfg["security"]["trusted_proxies"].get<std::vector<std::string>>();
+            }
         }
         if (cfg.contains("cors")) {
             // 安全修复 V9：CORS Origin 白名单

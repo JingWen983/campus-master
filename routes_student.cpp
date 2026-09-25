@@ -24,9 +24,9 @@ void register_student_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
-        User* user = find_user_by_id(user_id);
-
-        if (!user) {
+        // 批次 1 / B5：取拷贝；遍历 users 改走受锁入口 for_each_user（原为直接遍历全局容器）
+        User user;
+        if (!find_user_by_id_copy(user_id, user)) {
             json response = {{"code", 404}, {"msg", "用户不存在"}};
             res.set_content(response.dump(), "application/json");
             return;
@@ -34,18 +34,19 @@ void register_student_routes(httplib::Server& svr) {
 
         // 计算积分排名（按积分降序，同分同名次）
         int rank = 1;
-        for (const auto& u : users) {
-            if (u.role_id == 3 && u.points > user->points) {
+        const int my_points = user.points;
+        for_each_user([&](const User& u) {
+            if (u.role_id == 3 && u.points > my_points) {
                 rank++;
             }
-        }
+        });
 
         json student_info;
-        student_info["id"] = user->id;
-        student_info["name"] = user->name;
-        student_info["username"] = user->username;
-        student_info["className"] = user->className;
-        student_info["points"] = user->points;
+        student_info["id"] = user.id;
+        student_info["name"] = user.name;
+        student_info["username"] = user.username;
+        student_info["className"] = user.className;
+        student_info["points"] = user.points;
         student_info["rank"] = rank;
 
         json response;

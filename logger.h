@@ -37,8 +37,13 @@ public:
         }
     }
 
-    // 日志轮转：文件超过最大大小时，滚动重命名旧文件
-    static void rotate_if_needed() {
+    // 日志轮转：文件超过最大大小时，滚动重命名旧文件。
+    // 批次 1 / 伴-2（B30）：本函数**必须在 mutex_ 内调用**。
+    // 修复前 log() 的调用顺序是 rotate_if_needed() 在锁外、写文件在锁内，
+    // 于是「读大小 → 判断 → rename」与「append 写」之间存在 TOCTOU：
+    // 多个线程可同时判定需要轮转 → 并发 rename 同一个文件（Windows 上 rename 会失败并
+    // 丢失日志）；也可能在某线程刚 rename 后另一线程仍持有旧句柄写入，日志落入已改名文件。
+    static void rotate_if_needed_locked() {
         std::ifstream ifs(log_file_, std::ios::ate | std::ios::binary);
         if (!ifs) return;
         size_t size = ifs.tellg();
@@ -56,9 +61,11 @@ public:
     }
 
     static void log(Level level, const std::string& message) {
-        rotate_if_needed();
-
+        // 批次 1 / 伴-2：检查与 rename 必须在**同一临界区**内，且与本次 append 互斥
         std::lock_guard<std::mutex> lock(mutex_);
+
+        rotate_if_needed_locked();
+
         std::ofstream ofs(log_file_, std::ios::app);
         if (!ofs) return;
 
@@ -81,6 +88,12 @@ public:
     static void info(const std::string& msg)    { log(LOG_INFO, msg); }
     static void warning(const std::string& msg) { log(LOG_WARNING, msg); }
     static void error(const std::string& msg)   { log(LOG_ERROR, msg); }
+
+    // 保留公开入口（供测试/运维手动触发轮转）：自行加锁，内部走同一实现
+    static void rotate_if_needed() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        rotate_if_needed_locked();
+    }
 
 private:
     static std::string log_file_;

@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <ctime>
 #include <cstdlib>
+#include <map>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <iomanip>
@@ -104,17 +106,44 @@ inline std::string generate_session_id() {
 }
 
 // ====== 安全修复 V8：登录失败锁定（内存计数，按用户名 + 客户端 IP 维度）======
+// 批次 1 / 1-6（B4）三处修正：
+//   ① 并发：原 `static std::map` 被多线程无锁读写（登录是最高频写路径）→ 现统一用
+//      models 层那一把 g_state_mutex（决策② R1：全进程只有一把应用级锁；R6 要求
+//      不得另建第二把锁）。因该锁是 recursive_mutex，同一请求路径内的嵌套调用安全。
+//   ② 无上限增长：每个「IP|用户名」组合都会永久留一个条目，攻击者用随机用户名即可
+//      让 map 无限膨胀（内存耗尽型 DoS）→ 加容量上限与过期条目清理。
+//   ③ 客户端标识：见 login_client_ip() —— 默认**不信任**可被客户端伪造的
+//      X-Forwarded-For（原实现无条件取首段，攻击者每次换一个新值即可绕过锁定）。
 struct LoginAttempt {
     int fails = 0;
     time_t locked_until = 0;
+    time_t last_seen = 0;   // 批次 1：用于过期清理
 };
+
 inline std::map<std::string, LoginAttempt>& login_attempts() {
     static std::map<std::string, LoginAttempt> m;
     return m;
 }
 
+// 条目上限：超过后先清理过期项，仍超则拒绝新增（fail-closed：宁可锁住新键，
+// 也不让内存无界增长）
+inline constexpr size_t kMaxLoginAttemptEntries = 10000;
+
+inline void login_attempts_cleanup_locked() {
+    time_t now = time(nullptr);
+    for (auto it = login_attempts().begin(); it != login_attempts().end(); ) {
+        // 已解锁且超过 1 小时未再出现的条目可以丢弃
+        if (it->second.locked_until <= now && now - it->second.last_seen > 3600) {
+            it = login_attempts().erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 // 返回 true 表示当前允许尝试登录（未被锁定）
 inline bool login_can_try(const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
     auto& m = login_attempts();
     auto it = m.find(key);
     if (it == m.end()) return true;
@@ -124,8 +153,18 @@ inline bool login_can_try(const std::string& key) {
 
 // 登录失败累计 +1，超过阈值则锁定
 inline void login_record_fail(const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
     auto& m = login_attempts();
+    if (m.find(key) == m.end() && m.size() >= kMaxLoginAttemptEntries) {
+        login_attempts_cleanup_locked();
+        if (m.size() >= kMaxLoginAttemptEntries) {
+            Logger::warning("登录失败计数表已达上限 " + std::to_string(kMaxLoginAttemptEntries) +
+                            "，拒绝为新键计数（fail-closed）");
+            return;
+        }
+    }
     auto& a = m[key];
+    a.last_seen = time(nullptr);
     a.fails++;
     if (a.fails >= g_config.max_login_attempts) {
         a.locked_until = time(nullptr) + g_config.lockout_minutes * 60;
@@ -135,22 +174,67 @@ inline void login_record_fail(const std::string& key) {
 
 // 登录成功清除计数
 inline void login_record_success(const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
     login_attempts().erase(key);
 }
 
-inline std::string login_client_key(const httplib::Request& req, const std::string& username) {
-    std::string ip;
-    auto it = req.headers.find("X-Forwarded-For");
-    if (it != req.headers.end()) {
-        ip = it->second;
-        auto comma = ip.find(',');
-        if (comma != std::string::npos) ip = ip.substr(0, comma);
-    } else {
-        auto rit = req.headers.find("REMOTE_ADDR");
-        if (rit != req.headers.end()) ip = rit->second;
+// ====== 批次 1 / 1-6（B4）：客户端标识 ======
+//
+// **修复前**：无条件读 X-Forwarded-For 并取首段。该头完全由客户端控制，于是：
+//   * 攻击者每次请求换一个伪造值 → 每次都是「新客户端」→ 登录失败锁定**形同虚设**；
+//   * 反向滥用：伪造受害者 IP 反复失败 → 把受害者**锁死**（NAT/共享出口下连坐一片）。
+//
+// **修复后**：
+//   * config.trust_proxy_headers 默认 false → 只用 REMOTE_ADDR（httplib 注入的 socket 对端，
+//     客户端无法伪造；依据 httplib.h:3639）；
+//   * 即使开启，也要求 REMOTE_ADDR 命中 config.trusted_proxies 白名单才采信 XFF；
+//   * 白名单为空时**即使开关为 true 也不采信** —— 避免「开了开关忘配白名单」等于全信任；
+//   * 采信时只取 XFF **最后一跳**（最靠近本服务的那一跳，由可信代理追加），
+//     而非原实现的「首段」（首段是客户端可任意伪造的原始值）。
+inline std::string login_client_ip(const httplib::Request& req) {
+    std::string remote;
+    auto rit = req.headers.find("REMOTE_ADDR");
+    if (rit != req.headers.end()) remote = rit->second;
+
+    bool proxy_trusted = g_config.trust_proxy_headers
+                      && !g_config.trusted_proxies.empty()
+                      && !remote.empty()
+                      && std::find(g_config.trusted_proxies.begin(), g_config.trusted_proxies.end(), remote)
+                         != g_config.trusted_proxies.end();
+    if (!proxy_trusted) {
+        if (remote.empty()) return "unknown";
+        return remote;
     }
-    if (ip.empty()) ip = "unknown";
-    return ip + "|" + username;
+
+    auto it = req.headers.find("X-Forwarded-For");
+    if (it == req.headers.end() || it->second.empty()) {
+        return remote.empty() ? "unknown" : remote;
+    }
+    std::string xff = it->second;
+    auto comma = xff.find_last_of(',');
+    if (comma != std::string::npos) xff = xff.substr(comma + 1);
+    // 去掉首尾空白
+    size_t b = xff.find_first_not_of(" \t");
+    size_t e = xff.find_last_not_of(" \t");
+    if (b == std::string::npos) return remote;
+    xff = xff.substr(b, e - b + 1);
+    return xff.empty() ? remote : xff;
+}
+
+// 双键：IP 维度与账号维度各计一份，任一超阈即锁定。
+// 为什么两个键都要：只用账号维度会被「分布式撞库打一个账号」绕开；
+// 只用 IP 维度会被「同一出口打多个账号」绕开，且 NAT 下易误锁。
+// 调用方对两个键都要 record/check（见 routes_public.cpp 登录路径）。
+inline std::string login_client_key(const httplib::Request& req, const std::string& username) {
+    return login_client_ip(req) + "|" + username;
+}
+
+inline std::string login_ip_key(const httplib::Request& req) {
+    return "ip|" + login_client_ip(req);
+}
+
+inline std::string login_account_key(const std::string& username) {
+    return "acct|" + username;
 }
 
 // ====== 安全修复 V10：CSRF Token（双重提交 Cookie）======
@@ -276,43 +360,24 @@ inline void cleanup_expired_sessions() {
 
 // ====== 认证命名空间 ======
 namespace Auth {
-    // 检查用户是否有权限
+    // 检查用户是否有权限。
+    // 批次 1 / 1-2：原实现直接遍历 users / role_permissions / permissions 三个全局容器，
+    // 全程无锁（多线程下与写路径并发即 UB）。现委托给 models.cpp 的
+    // check_permission_optimized()，它在**一次** g_state_mutex 持锁内完成同一判定。
+    // 语义严格等价：都按 user.role_id → role_permissions → permission.code 匹配。
+    // 决策② 的 R6 要求不得自行加锁（会与外层调用形成自死锁），故此处只委托。
     inline bool check_permission(const string& user_id, const string& permission_code) {
-        auto user_it = find_if(users.begin(), users.end(), [&](const User& u) {
-            return u.id == user_id;
-        });
-
-        if (user_it == users.end()) {
-            return false;
-        }
-
-        int role_id = user_it->role_id;
-
-        for (const auto& rp : role_permissions) {
-            if (rp.role_id == role_id) {
-                auto perm_it = find_if(permissions.begin(), permissions.end(), [&](const Permission& p) {
-                    return p.id == rp.permission_id && p.code == permission_code;
-                });
-                if (perm_it != permissions.end()) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return check_permission_optimized(user_id, permission_code);
     }
 
-    // 检查用户是否有指定角色
+    // 检查用户是否有指定角色。
+    // 批次 1 / 1-2：同上，改为取拷贝后在锁外比较，不再让裸指针跨锁存活。
     inline bool check_role(const string& user_id, int role_id) {
-        auto user_it = find_if(users.begin(), users.end(), [&](const User& u) {
-            return u.id == user_id;
-        });
-
-        if (user_it == users.end()) {
+        User u;
+        if (!find_user_by_id_copy(user_id, u)) {
             return false;
         }
-
-        return user_it->role_id == role_id;
+        return u.role_id == role_id;
     }
 }
 

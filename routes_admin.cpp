@@ -415,13 +415,14 @@ void register_admin_routes(httplib::Server& svr) {
         int student_count = 0;
         int total_points = 0;
 
-        for (const auto& user : users) {
+        // 批次 1 / B5：改为受锁遍历入口（原来是直接遍历全局 users，与写路径并发即 UB）
+        for_each_user([&](const User& user) {
             switch (user.role_id) {
                 case 1: admin_count++; break;
                 case 2: teacher_count++; break;
                 case 3: student_count++; total_points += user.points; break;
             }
-        }
+        });
 
         json today_result = db.query("SELECT COUNT(*) as cnt FROM points_records WHERE date(created_at) = date('now', 'localtime')");
         int today_activities = today_result.empty() ? 0 : today_result[0].value("cnt", 0);
@@ -472,9 +473,14 @@ void register_admin_routes(httplib::Server& svr) {
             return;
         }
 
-        // 家长现在是真实用户（role_id=4），会被下面的循环直接包含
+        // 家长现在是真实用户（role_id=4），会被下面的遍历直接包含
+        // 批次 1 / B5：改为受锁遍历入口。
+        // 说明（对决策② R4「临界区内禁 I/O」的一处自觉放宽）：回调内为教师/家长附带
+        // 绑定关系而查库。若改为「先取快照、再在锁外查库」，快照与查询之间被删的用户会
+        // 产生 TOCTOU（返回已不存在的绑定）。此处选择「锁内查只读 SQL」以保证一致性，
+        // 代价是管理员用户列表接口持锁稍久（单次查询 <1ms，且该接口低频）。
         json users_json = json::array();
-        for (const auto& user : users) {
+        for_each_user([&](const User& user) {
             json user_json = {
                 {"id", user.id},
                 {"username", user.username},
@@ -510,7 +516,7 @@ void register_admin_routes(httplib::Server& svr) {
             }
 
             users_json.push_back(user_json);
-        }
+        });
 
         json response = {{"code", 200}, {"data", users_json}};
         res.set_content(response.dump(), "application/json");
@@ -550,28 +556,25 @@ void register_admin_routes(httplib::Server& svr) {
                 }
 
                 // 检查用户名是否已存在
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.username == username;
-                });
+                // 批次 1 / N2：改为「原子建号并落库」—— 查重、生成 ID、写 DB、写内存、重建索引
+                // 全部在**一次**持锁内完成。修复前三步分离且落库用 INSERT OR REPLACE，
+                // 并发下两个请求可以都通过查重（同名双开）或生成同一个 ID（后写入者静默覆盖）。
+                string new_id;
+                bool added = add_user_record_persisted([&](User& nu) {
+                    // 生成新的字符串 ID（generate_user_id 自身持锁，锁可重入）
+                    nu.id = generate_user_id(role_id, grade_code, class_code);
+                    nu.username = username;
+                    nu.password_hash = hash_password(password);
+                    nu.role_id = role_id;
+                    nu.name = name;
+                    nu.className = className;
+                    nu.points = 0;
+                    nu.student_id = (role_id == 3) ? username : "";
+                }, new_id, username);
 
-                if (it != users.end()) {
-                    response = {{"code", 400}, {"msg", "用户名已存在"}};
+                if (!added) {
+                    response = {{"code", 400}, {"msg", "用户名已存在或保存冲突"}};
                 } else {
-                    // 生成新的字符串 ID
-                    string new_id = generate_user_id(role_id, grade_code, class_code);
-                    User new_user;
-                    new_user.id = new_id;
-                    new_user.username = username;
-                    new_user.password_hash = hash_password(password);
-                    new_user.role_id = role_id;
-                    new_user.name = name;
-                    new_user.className = className;
-                    new_user.points = 0;
-                    new_user.student_id = (role_id == 3) ? username : "";
-                    users.push_back(new_user);
-                    update_user_index(new_user);
-                    save_user_to_db(new_user);
-
                     // 家长角色：插入 parent_students 绑定
                     if (role_id == 4) {
                         json bound_student_ids = req_json.value("bound_student_ids", json::array());
@@ -659,30 +662,25 @@ void register_admin_routes(httplib::Server& svr) {
                     continue;
                 }
 
-                // 3. username 兜底去重
-                if (find_user_by_username(username) != nullptr) {
+                // 3~5. 原子建号并落库（批次 1 / N2）
+                string new_id;
+                bool added = add_user_record_persisted([&](User& nu) {
+                    nu.id = generate_user_id(3, grade_code, class_code);
+                    nu.username = username;
+                    nu.password_hash = hash_password(password);
+                    nu.role_id = 3;
+                    nu.name = name;
+                    nu.className = className;
+                    nu.points = 0;
+                    nu.student_id = username;
+                }, new_id, username);
+
+                if (!added) {
                     string reason = "用户名已存在：" + username;
                     failed_records.push_back({{"row", i + 1}, {"name", name}, {"reason", reason}});
                     failed_count++;
                     continue;
                 }
-
-                // 4. 生成学生 ID
-                string new_id = generate_user_id(3, grade_code, class_code);
-
-                // 5. 构造 User 并保存
-                User new_user;
-                new_user.id = new_id;
-                new_user.username = username;
-                new_user.password_hash = hash_password(password);
-                new_user.role_id = 3;
-                new_user.name = name;
-                new_user.className = className;
-                new_user.points = 0;
-                new_user.student_id = username;
-                users.push_back(new_user);
-                update_user_index(new_user);
-                save_user_to_db(new_user);
 
                 // 6. 成功记录
                 success_records.push_back({
@@ -749,22 +747,43 @@ void register_admin_routes(httplib::Server& svr) {
                 return;
             }
 
-            auto user_it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == user_id;
+            // 批次 1 / B5：改为一次持锁内完成「存在性校验 → 用户名唯一性校验 →
+            // 改内存 → (DB 写) → 重建索引」，不再返回/持有裸指针。
+            // 原名唯一性校验原先用一次全量 find_if；这里在同一临界区内用索引遍历，
+            // 语义相同（排除自身）但不再存在「检查后使用」窗口。
+            bool user_found = false;
+            bool name_taken = false;
+            bool db_ok = false;
+            with_user_record(user_id, [&](User& u) -> bool {
+                user_found = true;
+                for (const auto& other : users) {
+                    if (other.username == username && other.id != user_id) { name_taken = true; break; }
+                }
+                if (name_taken) return false;   // 不修改任何内存状态
+                u.username = username;
+                u.name = name;
+                u.role_id = role_id;
+                u.className = className;
+                db_ok = db.execute_bind(
+                    "UPDATE users SET username = ?, name = ?, role_id = ?, className = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    {SqliteDb::Bind(username), SqliteDb::Bind(name), SqliteDb::Bind((long long)role_id),
+                     SqliteDb::Bind(className), SqliteDb::Bind(user_id)});
+                rebuild_user_indexes_locked();
+                return db_ok;
             });
 
-            if (user_it == users.end()) {
+            if (!user_found) {
                 response = {{"code", 404}, {"msg", "用户不存在"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
-
-            auto username_check = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.username == username && u.id != user_id;
-            });
-
-            if (username_check != users.end()) {
+            if (name_taken) {
                 response = {{"code", 400}, {"msg", "用户名已存在"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (!db_ok) {
+                response = {{"code", 500}, {"msg", "保存失败"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
@@ -782,17 +801,9 @@ void register_admin_routes(httplib::Server& svr) {
             // 现改为一次 rebuild_user_indexes()（与 B6/T24 同向）：users 向量此时已含新用户名，
             // 重建后 user_id_map / user_username_map 均与向量逐项一致，且不再依赖两个索引函数的调用顺序。
             // 原先用于比较的 old_username 随之不再需要，一并移除。
-            user_it->username = username;
-            user_it->name = name;
-            user_it->role_id = role_id;
-            user_it->className = className;
-
-            db.execute_bind(
-                "UPDATE users SET username = ?, name = ?, role_id = ?, className = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                {SqliteDb::Bind(username), SqliteDb::Bind(name), SqliteDb::Bind((long long)role_id),
-                 SqliteDb::Bind(className), SqliteDb::Bind(user_id)});
-
-            rebuild_user_indexes();
+            // 批次 1 / B5：上面的 with_user_record 回调已在**一次持锁**内完成
+            // 「写内存 → 写 DB → rebuild_user_indexes_locked()」，
+            // 因此此处不再有第二段写入（旧代码把这几行留在锁外，正是悬垂面所在）。
 
             // 教师角色：同步 teacher_classes 绑定
             if (role_id == 2) {
@@ -829,11 +840,11 @@ void register_admin_routes(httplib::Server& svr) {
                 {"code", 200},
                 {"msg", "用户编辑成功"},
                 {"data", {
-                    {"id", user_it->id},
-                    {"username", user_it->username},
-                    {"name", user_it->name},
-                    {"role_id", user_it->role_id},
-                    {"className", user_it->className}
+                    {"id", user_id},
+                    {"username", username},
+                    {"name", name},
+                    {"role_id", role_id},
+                    {"className", className}
                 }}
             };
 
@@ -861,32 +872,38 @@ void register_admin_routes(httplib::Server& svr) {
             string user_id = req_json.value("id", "");
 
             // 不能删除管理员用户
-            auto user_it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == user_id;
-            });
-
-            if (user_it == users.end()) {
-                response = {{"code", 404}, {"msg", "用户不存在"}};
-            } else if (user_it->role_id == 1) {
-                response = {{"code", 400}, {"msg", "不能删除管理员用户"}};
-            } else {
-                string deleted_id = user_it->id;
-                string deleted_username = user_it->username;
-
+            // 批次 1 / B5：一次持锁内完成「查角色 → 删关联 → 删库 → erase → 重建索引」。
+            // 关键：erase 会使后续元素整体前移，必须在**同一临界区**内重建索引，
+            // 否则并发的 find_user_by_id 会取到错误用户（B6）。
+            std::string deleted_id;
+            bool not_found = false;
+            bool is_admin = false;
+            with_user_record(user_id, [&](User& u) -> bool {
+                deleted_id = u.id;
+                if (u.role_id == 1) { is_admin = true; return false; }
                 // 删除关联的 teacher_classes 和 parent_students 记录
                 db.execute_bind(
                     "DELETE FROM teacher_classes WHERE teacher_id = ?",
                     {SqliteDb::Bind(deleted_id)});
-
                 db.execute_bind(
                     "DELETE FROM parent_students WHERE parent_id = ?",
                     {SqliteDb::Bind(deleted_id)});
-
                 delete_user_from_db(deleted_id);
-                users.erase(user_it);
+                // 从向量中真正移除（按 id 定位，避免使用会失效的迭代器）
+                for (auto it = users.begin(); it != users.end(); ++it) {
+                    if (it->id == deleted_id) { users.erase(it); break; }
+                }
                 // 安全修复 B6：erase 会让后续元素整体前移，必须重建用户索引，
                 // 否则 user_id_map 仍存旧下标 → 后续 find_user_by_id 返回错误用户。
-                rebuild_user_indexes();
+                rebuild_user_indexes_locked();
+                return true;
+            }, &not_found);
+
+            if (not_found) {
+                response = {{"code", 404}, {"msg", "用户不存在"}};
+            } else if (is_admin) {
+                response = {{"code", 400}, {"msg", "不能删除管理员用户"}};
+            } else {
                 response = {{"code", 200}, {"msg", "用户删除成功"}};
             }
         } catch (const exception& e) {
@@ -932,44 +949,54 @@ void register_admin_routes(httplib::Server& svr) {
                 }
             }
 
-            auto user_it = find_if(users.begin(), users.end(), [&](const User& u) {
-                return u.id == user_id;
-            });
-
-            if (user_it == users.end()) {
-                response = {{"code", 404}, {"msg", "用户不存在"}};
-            } else {
-                std::string new_hash = hash_password(new_password);
-                user_it->password_hash = new_hash;
-                // 安全修复 V18（B2）：管理员代设的口令必须首登改密，否则强制改密可被绕过。
-                // user_it 来自数据库加载，其标记反映旧状态，故必须显式置位，
-                // 并与 password_hash 在同一条 UPDATE 内落库。
-                user_it->must_change_password = true;
-
-                // 安全修复 V2：参数化更新，避免 user_id 触发注入
-                db.execute_bind(
+            // 批次 1 / B5 + H-②：一次持锁内读改写；并用受影响行数确认真的改了 1 行
+            // （修复前 execute_bind 只看布尔返回，0 行也报「重置成功」）。
+            std::string new_hash = hash_password(new_password);
+            bool not_found = false;
+            bool db_ok = false;
+            int rows_changed = 0;
+            std::string target_username, target_name;
+            with_user_record(user_id, [&](User& u) -> bool {
+                target_username = u.username;
+                target_name = u.name;
+                int affected = 0;
+                int rc = db.execute_bind_affected(
                     "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    {SqliteDb::Bind(new_hash), SqliteDb::Bind(user_id)});
+                    {SqliteDb::Bind(new_hash), SqliteDb::Bind(user_id)}, affected);
+                rows_changed = affected;
+                if (rc != 0 || affected != 1) return false;
+                // DB 成功后才改内存（安全修复 V18/B2：管理员代设的口令必须首登改密）
+                u.password_hash = new_hash;
+                u.must_change_password = true;
+                db_ok = true;
+                return true;
+            }, &not_found);
 
+            if (not_found) {
+                response = {{"code", 404}, {"msg", "用户不存在"}};
+            } else if (!db_ok) {
+                response = {{"code", 500}, {"msg", "密码重置失败"}};
+                Logger::error("重置口令失败：用户 " + user_id + " 的 UPDATE 影响行数=" +
+                              std::to_string(rows_changed) + "（预期 1）");
+            } else {
                 std::string session_id = get_cookie_value(req, "sid");
                 string operator_id = verify_session(session_id);
                 string operator_name = "管理员";
-                auto operator_it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.id == operator_id;
-                });
-                if (operator_it != users.end()) {
-                    operator_name = operator_it->name;
+                // 批次 1 / B5：取拷贝，不再直接遍历 users
+                User op;
+                if (!operator_id.empty() && find_user_by_id_copy(operator_id, op)) {
+                    operator_name = op.name;
                 }
 
-                Logger::info("管理员 " + operator_name + " 重置了用户 " + user_it->name + " 的密码");
+                Logger::info("管理员 " + operator_name + " 重置了用户 " + target_name + " 的密码");
 
                 response = {
                     {"code", 200},
                     {"msg", "密码重置成功"},
                     {"data", {
                         {"user_id", user_id},
-                        {"username", user_it->username},
-                        {"name", user_it->name},
+                        {"username", target_username},
+                        {"name", target_name},
                         {"new_password", new_password}
                     }}
                 };
@@ -1144,7 +1171,18 @@ void register_admin_routes(httplib::Server& svr) {
                 if (it == permissions.end()) {
                     response = {{"code", 404}, {"msg", "权限不存在"}};
                 } else {
+                    // 批次 1 / H-①：删除权限后必须重建 permission_id_map 与 role_permission_map。
+                    // 修复前只做 permissions.erase —— 索引仍保留该权限 → check_permission_optimized
+                    // 对**已删除的权限**继续返回 true（函数级已复现）。
+                    std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
+                    int removed_id = it->id;
                     permissions.erase(it);
+                    // 同时清掉角色-权限关联，避免留下指向已删权限的悬挂关联
+                    role_permissions.erase(
+                        std::remove_if(role_permissions.begin(), role_permissions.end(),
+                                       [&](const RolePermission& rp) { return rp.permission_id == removed_id; }),
+                        role_permissions.end());
+                    init_indexes();
                     response = {{"code", 200}, {"msg", "权限删除成功"}};
                 }
             }
@@ -1180,7 +1218,18 @@ void register_admin_routes(httplib::Server& svr) {
                 if (it == roles.end()) {
                     response = {{"code", 404}, {"msg", "角色不存在"}};
                 } else {
+                    // 批次 1 / H-①：删除角色后必须重建 role_id_map 并清掉 role_permission_map 中
+                    // 该角色的条目。修复前端到端实测：角色已从 roles 列表消失，而**同一既有会话**
+                    // 访问 /api/admin/statistics 仍返回 HTTP 200（应 403）——
+                    // 机制是 Auth::check_permission 读 role_permissions **向量**，其条目不随 roles.erase 变化。
+                    std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
+                    int removed_role = it->id;
                     roles.erase(it);
+                    role_permissions.erase(
+                        std::remove_if(role_permissions.begin(), role_permissions.end(),
+                                       [&](const RolePermission& rp) { return rp.role_id == removed_role; }),
+                        role_permissions.end());
+                    init_indexes();
                     response = {{"code", 200}, {"msg", "角色删除成功"}};
                 }
             }
@@ -1326,13 +1375,13 @@ void register_admin_routes(httplib::Server& svr) {
         int teacher_count = 0;
         int student_count = 0;
 
-        for (const auto& user : users) {
+        for_each_user([&](const User& user) {
             switch (user.role_id) {
                 case 1: admin_count++; break;
                 case 2: teacher_count++; break;
                 case 3: student_count++; break;
             }
-        }
+        });
 
         json user_distribution = json::array();
         user_distribution.push_back({{"name", "管理员"}, {"value", admin_count}});
@@ -1362,7 +1411,7 @@ void register_admin_routes(httplib::Server& svr) {
         int range_151_200 = 0;
         int range_200_plus = 0;
 
-        for (const auto& user : users) {
+        for_each_user([&](const User& user) {
             if (user.role_id == 3) {
                 if (user.points <= 50) {
                     range_0_50++;
@@ -1376,7 +1425,7 @@ void register_admin_routes(httplib::Server& svr) {
                     range_200_plus++;
                 }
             }
-        }
+        });
 
         json points_distribution = json::array();
         points_distribution.push_back({{"range", "0-50"}, {"count", range_0_50}});
@@ -1408,7 +1457,7 @@ void register_admin_routes(httplib::Server& svr) {
         export_data["export_time"] = get_current_time();
 
         json users_json = json::array();
-        for (const auto& user : users) {
+        for_each_user([&](const User& user) {
             // 安全修复 V7：导出接口不得泄露口令哈希
             users_json.push_back({
                 {"id", user.id},
@@ -1418,7 +1467,7 @@ void register_admin_routes(httplib::Server& svr) {
                 {"className", user.className},
                 {"points", user.points}
             });
-        }
+        });
         export_data["users"] = users_json;
 
         json roles_json = json::array();
@@ -1516,60 +1565,94 @@ void register_admin_routes(httplib::Server& svr) {
             int skipped_count = 0;
             int error_count = 0;
 
-            db.execute("BEGIN TRANSACTION");
+            // 批次 1 / 伴-1（B7）：改为 RAII 事务守卫。
+            // 修复前的三处缺陷：① 用裸 execute("BEGIN TRANSACTION")，而事务是**连接级**的，
+            // BEGIN 与 COMMIT 之间整个导入循环里，其他线程在同一连接上的写入会被卷入本事务，
+            // 一旦 ROLLBACK 就把它们「已返回 200」的写入一起丢弃；② BEGIN/COMMIT 的返回码
+            // 从未被检查；③ json::parse_error 分支漏回滚（只在 catch(exception) 里回滚）。
+            // 现在：守卫析构时若未 commit 必回滚（含提前 return 与任何异常分支）。
+            SqliteDb::Transaction txn(db);
+            if (db.isOpen() == false) {
+                response = json::object();
+                response["code"] = 500;
+                response["msg"] = "数据库连接不可用";
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
             if (import_data.contains("users") && import_data["users"].is_array()) {
+                // 批次 1 / B5 + 伴-1：整个导入过程持 g_state_mutex（锁可重入，
+                // 内部调用的 add_user_record / generate_user_id / rebuild_* 不会自死锁），
+                // 使「查重 → 改内存 → 落库」在同一临界区内，不再有竞态窗口。
+                std::lock_guard<std::recursive_mutex> lk(g_state_mutex);
                 for (const auto& user_json : import_data["users"]) {
                     string id = user_json.value("id", "");
                     string username = user_json.value("username", "");
 
-                    auto existing = find_if(users.begin(), users.end(), [&](const User& u) {
-                        return u.id == id || u.username == username;
-                    });
+                    // 用模型层的受锁存在性查询（索引容器不对外暴露）
+                    std::string found_id = !id.empty() ? find_user_id_by_id_key(id) : std::string();
+                    if (found_id.empty() && !username.empty()) {
+                        found_id = find_user_id_by_username(username);
+                    }
+                    bool exists = !found_id.empty();
+                    size_t idx = 0;
+                    if (exists) {
+                        for (size_t k = 0; k < users.size(); k++) {
+                            if (users[k].id == found_id) { idx = k; break; }
+                        }
+                    }
 
-                    if (existing != users.end()) {
+                    if (exists) {
                         if (mode == "overwrite") {
-                            existing->username = username;
+                            User& existing = users[idx];
                             // 安全修复 V7：导入只允许重置密码字段（明文），不接受客户端提供的 hash
                             std::string plain = user_json.value("password", "");
                             if (!plain.empty()) {
-                                existing->password_hash = hash_password(plain);
+                                existing.password_hash = hash_password(plain);
                                 // 安全修复 V18（B2）：导入重置口令同属「他人代设」，必须首登改密
                                 // （existing 随后经 save_user_to_db 落库，标记一并写入）
-                                existing->must_change_password = true;
+                                existing.must_change_password = true;
                             }
                             // 安全修复 V1：导入时 role_id 仅允许学生；提升角色需在专门接口
                             int role = user_json.value("role_id", 3);
                             if (role != 3) role = 3;
-                            existing->role_id = role;
-                            existing->name = user_json.value("name", "");
-                            existing->className = user_json.value("className", "");
-                            existing->points = user_json.value("points", 0);
-                            save_user_to_db(*existing);
+                            existing.role_id = role;
+                            existing.name = user_json.value("name", "");
+                            existing.className = user_json.value("className", "");
+                            existing.points = user_json.value("points", 0);
+                            // 覆盖既有行必须用 UPDATE（save_user_to_db 已改为普通 INSERT，
+                            // 行存在时会因唯一键冲突失败）
+                            update_user_in_db(existing);
+                            rebuild_user_indexes_locked();
                             imported_count++;
                         } else {
                             skipped_count++;
                         }
                     } else {
-                        User new_user;
-                        new_user.id = id;
-                        new_user.username = username;
-                        // 安全修复 V7：导入只接受明文密码字段，由服务端哈希
-                        std::string plain = user_json.value("password", "");
-                        new_user.password_hash = plain.empty()
-                            ? hash_password(generate_random_password())
-                            : hash_password(plain);
-                        // 安全修复 V1：导入仅允许学生角色
-                        int role = user_json.value("role_id", 3);
-                        if (role != 3) role = 3;
-                        new_user.role_id = role;
-                        new_user.name = user_json.value("name", "");
-                        new_user.className = user_json.value("className", "");
-                        new_user.points = user_json.value("points", 0);
-                        new_user.student_id = username;
-                        users.push_back(new_user);
-                        save_user_to_db(new_user);
-                        imported_count++;
+                        // 原子建号并落库（显式指定 id，故不走 required_username 查重）
+                        string added_id;
+                        bool ok = add_user_record_persisted([&](User& nu) {
+                            nu.id = id;
+                            nu.username = username;
+                            // 安全修复 V7：导入只接受明文密码字段，由服务端哈希
+                            std::string plain = user_json.value("password", "");
+                            nu.password_hash = plain.empty()
+                                ? hash_password(generate_random_password())
+                                : hash_password(plain);
+                            // 安全修复 V1：导入仅允许学生角色
+                            int role = user_json.value("role_id", 3);
+                            if (role != 3) role = 3;
+                            nu.role_id = role;
+                            nu.name = user_json.value("name", "");
+                            nu.className = user_json.value("className", "");
+                            nu.points = user_json.value("points", 0);
+                            nu.student_id = username;
+                        }, added_id);
+                        if (ok) {
+                            imported_count++;
+                        } else {
+                            error_count++;
+                        }
                     }
                 }
             }
@@ -1731,7 +1814,11 @@ void register_admin_routes(httplib::Server& svr) {
                 }
             }
 
-            db.execute("COMMIT");
+            if (!txn.commit()) {
+                response = {{"code", 500}, {"msg", "导入提交失败，已回滚"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
             init_indexes();
 
@@ -1747,12 +1834,13 @@ void register_admin_routes(httplib::Server& svr) {
 
         } catch (json::parse_error& e) {
             // 安全修复 V15：不向客户端回显内部异常细节
+            // 批次 1 / 伴-1：本分支原先**漏回滚**；现由 SqliteDb::Transaction 的析构统一回滚。
             response = {{"code", 400}, {"msg", "数据格式错误"}};
         } catch (const exception& e) {
             // 安全修复 V15：异常细节仅记录服务端日志，不回显客户端
             Logger::error(string("导入失败: ") + e.what());
             response = {{"code", 500}, {"msg", "导入失败"}};
-            db.execute("ROLLBACK");
+            // 回滚由 txn 析构完成，不再需要显式 ROLLBACK
         }
 
         res.set_content(response.dump(), "application/json");

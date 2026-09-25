@@ -90,6 +90,12 @@ Desktop.ini
 # Trae 工具目录（spec 文档可选择性保留，这里排除）
 .trae/
 
+# AgentTeams 运行时状态（团队 / 任务 / 信箱等本机状态，不入库）
+# 该目录是本机调度工具的运行时状态（当前约 860 KB，含 captain 与各 member 的 jsonl 信箱），
+# 与项目源码无关。此前它只是"未跟踪"（git status 显示 ??），容易被误 add，
+# 故显式忽略；仓库只保留源码与文档。
+.agent-teams/
+
 # 前端工程（Vite + Vue SFC）
 frontend/node_modules/
 frontend/dist/

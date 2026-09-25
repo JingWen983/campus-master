@@ -61,25 +61,45 @@ void register_parent_routes(httplib::Server& svr) {
                 return;
             }
 
+            // 批次 1 / 1-6（B4）：家长登录原先**完全没有失败锁定**，
+            // 是绕过「登录失败锁定」的一条现成通道（家长账号同样是有效凭据）。
+            // 现接入与普通登录同构的双键计数（IP 维度 + 账号维度）。
+            const std::string ip_key = login_ip_key(req);
+            const std::string acct_key = login_account_key(username);
+            if (!login_can_try(ip_key) || !login_can_try(acct_key)) {
+                response = {{"code", 429}, {"msg", "登录尝试过于频繁，请稍后再试"}};
+                res.status = 429;
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
             // 通过用户名查找家长用户（role_id=4）
-            User* user = find_user_by_username(username);
-            if (!user || user->role_id != 4) {
+            // 批次 1 / B5：取拷贝，不再持有可被并发失效的裸指针
+            User user;
+            if (!find_user_by_username_copy(username, user) || user.role_id != 4) {
+                login_record_fail(ip_key);
+                login_record_fail(acct_key);
                 response = {{"code", 401}, {"msg", "家长账号不存在"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
             // 验证家长密码
-            if (!verify_password(password, user->password_hash)) {
+            if (!verify_password(password, user.password_hash)) {
+                login_record_fail(ip_key);
+                login_record_fail(acct_key);
                 response = {{"code", 401}, {"msg", "家长密码错误"}};
                 res.set_content(response.dump(), "application/json");
                 return;
             }
 
+            login_record_success(ip_key);
+            login_record_success(acct_key);
+
             // 生成家长会话并存入数据库（user_id 为家长字符串 id）
             cleanup_expired_sessions();
             std::string session_id = generate_session_id();
-            create_session(session_id, user->id, 4, g_config.session_expiry_hours, true, user->id);
+            create_session(session_id, user.id, 4, g_config.session_expiry_hours, true, user.id);
 
             // 设置 HttpOnly cookie
             int max_age = g_config.session_expiry_hours * 3600;
@@ -93,7 +113,7 @@ void register_parent_routes(httplib::Server& svr) {
                 "SELECT u.id, u.name, u.className, u.points FROM users u "
                 "JOIN parent_students ps ON u.id = ps.student_id "
                 "WHERE ps.parent_id = ?",
-                {SqliteDb::Bind(user->id)});
+                {SqliteDb::Bind(user.id)});
             for (const auto& row : children_result) {
                 json child;
                 child["id"] = get_string_field(row, "id");
@@ -109,12 +129,12 @@ void register_parent_routes(httplib::Server& svr) {
                 {"msg", "登录成功"},
                 {"data", {
                     {"user", {
-                        {"id", user->id},
+                        {"id", user.id},
                         {"username", username},
-                        {"name", user->name},
+                        {"name", user.name},
                         {"role_id", 4},
-                        {"className", user->className},
-                        {"points", user->points}
+                        {"className", user.className},
+                        {"points", user.points}
                     }},
                     {"children", children},
                     {"csrf_token", csrf}
