@@ -43,12 +43,13 @@ void register_public_routes(httplib::Server& svr) {
             }
 
             bool password_match = verify_password(password, user->password_hash);
-            // 安全修复 V5：旧版无盐哈希登录成功后自动升级为 PBKDF2
-            if (password_match && user->password_hash.compare(0, 7, "pbkdf2$") != 0) {
-                std::string new_hash = hash_password(password);
-                user->password_hash = new_hash;
-                save_user_to_db(*user);
-            }
+            // 安全修复 V18（B2）：删除旧版「登录成功即就地升级为 PBKDF2」的自动升级链。
+            // 依据 BATCH0_DESIGN_DECISIONS.md 决策①：在 B1 存在时这条链会把任何一次合法登录
+            // 变成对 admin 的永久接管放大器；且存量 pbkdf2$ 记录「好坏同构」，无法在信息论上区分。
+            // 故统一改为「存量一律失效 + 运维强制重置」流程（启动时会统计并告警仍在使用
+            // 旧版无盐 SHA256 的账号，见 main.cpp warn_legacy_weak_hashes()）。
+            // 注意：verify_password 的旧版裸 SHA256 兼容分支仍然保留，旧账号依然能登录，
+            // 只是不再被静默改写其存储串。
             if (!password_match) {
                 login_record_fail(lk);
                 response = {{"code", 401}, {"msg", "用户名或密码错误"}};
@@ -79,9 +80,12 @@ void register_public_routes(httplib::Server& svr) {
                         {"username", user->username},
                         {"name", user->name},
                         {"role_id", user->role_id},
-                        {"className", user->className}
+                        {"className", user->className},
+                        // 安全修复 V18（B2）：告知客户端必须先改初始口令
+                        {"must_change_password", user->must_change_password}
                     }},
-                    {"csrf_token", csrf}
+                    {"csrf_token", csrf},
+                    {"must_change_password", user->must_change_password}
                 }}
             };
 
@@ -163,6 +167,9 @@ void register_public_routes(httplib::Server& svr) {
                 0,
                 username
             };
+            // 安全修复 V18（B2）：自助注册由**用户自己**设定口令，不需要首登改密。
+            // （struct User 的 must_change_password 默认值为 true，属 fail-safe 设计，故这里必须显式置 false）
+            new_user.must_change_password = false;
 
             users.push_back(new_user);
             update_user_index(new_user);
@@ -215,7 +222,9 @@ void register_public_routes(httplib::Server& svr) {
                 {"name", effective_name},
                 {"role_id", effective_role_id},
                 {"className", user->className},
-                {"points", user->points}
+                {"points", user->points},
+                // 安全修复 V18（B2）：前端据此在刷新后仍能识别「必须先改密」状态
+                {"must_change_password", user->must_change_password}
             }}
         };
 
@@ -234,6 +243,8 @@ void register_public_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
+        // 安全修复 V18（B2）：未改初始口令 → 403（白名单：改密/登出/me）
+        if (!enforce_password_change(req, res)) return;
         User* user = find_user_by_id(user_id);
 
         if (!user) {
@@ -266,6 +277,8 @@ void register_public_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
+        // 安全修复 V18（B2）：未改初始口令 → 403
+        if (!enforce_password_change(req, res)) return;
 
         json records = json::array();
 
@@ -322,6 +335,8 @@ void register_public_routes(httplib::Server& svr) {
             res.set_content(response.dump(), "application/json");
             return;
         }
+        // 安全修复 V18（B2）：未改初始口令 → 403
+        if (!enforce_password_change(req, res)) return;
         User* user = find_user_by_id(user_id);
         if (!user) {
             response = {{"code", 404}, {"msg", "用户不存在"}};
@@ -415,6 +430,121 @@ void register_public_routes(httplib::Server& svr) {
         }
 
         json response = {{"code", 200}, {"data", ranks}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // 9. 修改口令 API（安全修复 V18 / B2）
+    // 既是「首登强制改密」的唯一出口，也是常规改密入口 —— 因此它**不在**强制改密门禁的
+    // 拦截范围内（白名单：改密 / 登出 / me）。
+    // 校验：有效会话 + CSRF + 原口令正确 + 强度达标 + 新旧不同 + 非可预测默认口令；
+    // 成功后写入新哈希、清除 must_change_password 并立即落库。
+    svr.Post("/api/auth/change-password", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(req, res);
+        if (!require_csrf(req, res)) return;
+        json response;
+
+        std::string session_id = get_cookie_value(req, "sid");
+        std::string user_id = verify_session(session_id);
+        if (user_id.empty()) {
+            res.status = 401;
+            response = {{"code", 401}, {"msg", "会话无效或已过期"}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+        User* user = find_user_by_id(user_id);
+        if (!user) {
+            res.status = 404;
+            response = {{"code", 404}, {"msg", "用户不存在"}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+
+        try {
+            auto req_json = json::parse(req.body);
+            std::string old_password = req_json.value("old_password", "");
+            std::string new_password = req_json.value("new_password", "");
+
+            if (old_password.empty() || new_password.empty()) {
+                res.status = 400;
+                response = {{"code", 400}, {"msg", "原密码与新密码不能为空"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            // ① 原口令校验（B1 修复后这一步才真正具备校验力）
+            if (!verify_password(old_password, user->password_hash)) {
+                res.status = 400;
+                response = {{"code", 400}, {"msg", "原密码错误"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            // ② 新旧必须不同
+            if (old_password == new_password) {
+                res.status = 400;
+                response = {{"code", 400}, {"msg", "新密码不能与原密码相同"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            // ③ 强度：至少 8 位，且同时包含字母与数字
+            const std::string letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const std::string digits = "0123456789";
+            if (new_password.size() < 8 ||
+                new_password.find_first_of(letters) == std::string::npos ||
+                new_password.find_first_of(digits) == std::string::npos) {
+                res.status = 400;
+                response = {{"code", 400}, {"msg", "新密码至少 8 位，且必须同时包含字母和数字"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            // ④ 拒绝可预测的默认口令（直接对应 B2「去除可预测默认凭据」的目标）
+            static const char* weak_defaults[] = {
+                "admin123", "teacher123", "student123", "parent123",
+                "12345678", "123456789", "password", "password1", "admin@123"
+            };
+            for (const char* w : weak_defaults) {
+                if (new_password == w) {
+                    res.status = 400;
+                    response = {{"code", 400}, {"msg", "新密码过于常见/可预测，请更换"}};
+                    res.set_content(response.dump(), "application/json");
+                    return;
+                }
+            }
+            // ⑤ 不得与用户名相同
+            if (new_password == user->username) {
+                res.status = 400;
+                response = {{"code", 400}, {"msg", "新密码不能与用户名相同"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            // ⑥ 落库：**单条 UPDATE** 同时写入新哈希并清除强制改密标记。
+            // 不用 save_user_to_db 的 INSERT OR REPLACE —— 那会重建整行、把 created_at 重置为当前时间。
+            std::string prev_hash = user->password_hash;
+            bool prev_flag = user->must_change_password;
+            std::string new_hash = hash_password(new_password);
+            bool saved = db.execute_bind(
+                "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                {SqliteDb::Bind(new_hash), SqliteDb::Bind(user->id)});
+            if (!saved) {
+                // 落库失败 → 回滚内存，避免内存与磁盘状态不一致
+                user->password_hash = prev_hash;
+                user->must_change_password = prev_flag;
+                res.status = 500;
+                response = {{"code", 500}, {"msg", "密码保存失败，请重试"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            user->password_hash = new_hash;
+            user->must_change_password = false;
+
+            // 只记录用户名，绝不记录口令（沿用「日志不记敏感信息」的既有约定）
+            Logger::info("用户 " + user->username + " 修改口令成功，已清除强制改密标记");
+            response = {{"code", 200}, {"msg", "密码修改成功"},
+                        {"data", {{"must_change_password", false}}}};
+        } catch (json::parse_error& e) {
+            res.status = 400;
+            response = {{"code", 400}, {"msg", "请求数据格式错误"}};
+        }
+
         res.set_content(response.dump(), "application/json");
     });
 }

@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>后端 C++ 审计 — 校园能量站代码质量评估</title>
+<style>
+:root{--bg:#f7f8fa;--panel:#fff;--ink:#1f2328;--muted:#5a6572;--line:#e3e6ea;--accent:#0f766e;
+--blocker:#b91c1c;--high:#c2410c;--med:#a16207;--low:#4b5563;--code-bg:#f3f4f6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+.wrap{display:flex;max-width:1500px;margin:0 auto;gap:0;align-items:flex-start}
+aside{position:sticky;top:0;height:100vh;overflow-y:auto;flex:0 0 280px;background:#0f172a;color:#cbd5e1;padding:24px 18px}
+aside h1{font-size:15px;color:#fff;margin:0 0 4px;letter-spacing:.02em}
+aside .sub{font-size:12px;color:#94a3b8;margin-bottom:20px;line-height:1.5}
+aside nav a{display:block;color:#cbd5e1;text-decoration:none;font-size:13.5px;padding:7px 10px;border-radius:7px;margin-bottom:3px}
+aside nav a:hover{background:#1e293b;color:#fff}
+aside nav a.active{background:var(--accent);color:#fff;font-weight:600}
+aside .toc{border-top:1px solid #1e293b;margin-top:18px;padding-top:14px}
+aside .toc .h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:8px}
+aside .toc a{display:block;color:#94a3b8;text-decoration:none;font-size:12.5px;padding:4px 10px;border-left:2px solid #1e293b;line-height:1.45}
+aside .toc a:hover{color:#fff;border-left-color:var(--accent)}
+main{flex:1 1 auto;min-width:0;background:var(--panel);padding:48px 60px 96px;min-height:100vh}
+.meta{font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:32px}
+h1{font-size:30px;margin:0 0 10px;letter-spacing:-.01em}
+h2{font-size:22px;margin:44px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:none}
+h3{font-size:17.5px;margin:28px 0 10px}
+h4{font-size:15.5px;margin:20px 0 8px;color:var(--muted)}
+p{margin:12px 0}
+a{color:#0e7490}
+ul,ol{margin:12px 0;padding-left:26px}
+li{margin:5px 0}
+code{background:var(--code-bg);padding:2px 6px;border-radius:5px;font-size:13.5px;
+font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Code",monospace;color:#0f172a}
+pre.code{background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:10px;overflow-x:auto;margin:16px 0;
+font-size:13.5px;line-height:1.6}
+pre.code code{background:none;color:inherit;padding:0;font-size:inherit}
+blockquote{margin:18px 0;padding:14px 20px;background:#f0fdfa;border-left:4px solid var(--accent);border-radius:0 8px 8px 0;color:#134e4a}
+blockquote blockquote{margin:8px 0}
+blockquote.callout{background:#fef2f2;border-left-color:var(--blocker)}
+blockquote.callout .callout-big{font-size:18px;font-weight:700;color:var(--blocker);margin:0;line-height:1.5}
+hr{border:none;border-top:1px solid var(--line);margin:36px 0}
+.tw{overflow-x:auto;margin:18px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:#f1f5f9;font-weight:600;white-space:nowrap}
+tr:nth-child(even) td{background:#fafbfc}
+strong{color:#0b1220}
+@media print{
+  aside{display:none}
+  body{background:#fff}
+  main{padding:0;max-width:100%}
+  pre.code{background:#f5f5f5;color:#111;border:1px solid #ddd}
+  h2{page-break-after:avoid}
+  .tw,table,pre.code,blockquote{page-break-inside:avoid}
+}
+@media(max-width:900px){.wrap{flex-direction:column}aside{position:static;height:auto;width:100%;flex:none}main{padding:28px 20px 64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <h1>校园能量站 · 代码质量评估</h1>
+    <div class="sub">只读审计 · 未改动任何源码<br>2026-09-12</div>
+    <nav>
+      <a href="CODE_QUALITY_SUMMARY.html">代码质量评估总览</a>
+      <a href="CODE_QUALITY_REVIEW.html">代码质量改进建议书（主交付物）</a>
+      <a href="VERIFICATION.html">独立复核报告</a>
+      <a href="BACKEND_FINDINGS.html" class="active">后端 C++ 审计</a>
+      <a href="FRONTEND_FINDINGS.html">前端 Vue3/TS 审计</a>
+    </nav>
+    <div class="toc">
+      <div class="h">本页目录</div>
+      <a class="l2" href="#h-1-审计范围与方法">1. 审计范围与方法</a>
+        <a class="l2" href="#h-2-结论摘要-按严重度排序">2. 结论摘要（按严重度排序）</a>
+        <a class="l2" href="#h-3-逐条发现详情">3. 逐条发现详情</a>
+        <a class="l2" href="#h-4-做得好的地方-均有源码依据">4. 做得好的地方（均有源码依据）</a>
+        <a class="l2" href="#h-5-未验证-存疑事项-明确区分">5. 未验证 / 存疑事项（明确区分）</a>
+        <a class="l2" href="#h-6-建议的改进优先级-严重度-修复成本">6. 建议的改进优先级（严重度 × 修复成本）</a>
+    </div>
+  </aside>
+  <main>
+    <div class="meta">源文件 <code>BACKEND_FINDINGS.md</code> · 1806 行 · 121,339 字节 · 共 6 个章节</div>
+    <h1 id="h-校园能量站-c-后端代码质量审计报告-backend_findings">校园能量站 · C++ 后端代码质量审计报告（BACKEND_FINDINGS）</h1>
+<ul>
+<li>审计人：backend-auditor（team <code>code-quality-audit</code>，任务 t1）</li>
+<li>审计对象：<code>D:\邵敬文\comptation</code> 下自研 C++ 源码（17 个文件，<code>read</code> 工具累计 6,053 行，含空行/注释）</li>
+<li>排除范围：vendored 第三方 <code>httplib.h</code>、<code>json.hpp</code>、<code>sqlite3.c/h/ext.h</code>、<code>vcpkg/</code>（仅在需要判定框架行为时定点阅读其行）</li>
+<li>审计模式：<strong>纯只读</strong>。未修改/新建/删除任何源码文件，未重新编译，未运行 <code>server.exe</code>，唯一写入的文件是本报告</li>
+<li>报告日期：见文件 mtime</li>
+</ul>
+<hr>
+<h2 id="h-1-审计范围与方法">1. 审计范围与方法</h2>
+<h3 id="h-1-1-实际逐行阅读的自研文件-read-工具-行号以-read-输出为准">1.1 实际逐行阅读的自研文件（<code>read</code> 工具，行号以 <code>read</code> 输出为准）</h3>
+<div class="tw"><table>
+<thead><tr><th>文件</th><th>行数</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>main.cpp</code></td><td>336</td><td>入口、schema、种子数据、线程池</td></tr>
+<tr><td><code>auth.h</code></td><td>404</td><td>会话/登录锁定/CSRF/CORS/中间件</td></tr>
+<tr><td><code>config.h</code></td><td>94</td><td>配置结构 + JSON 加载</td></tr>
+<tr><td><code>config.json</code></td><td>31</td><td>运行时配置（thread_count=8 等）</td></tr>
+<tr><td><code>sqlite_wrapper.h</code></td><td>212</td><td>唯一 DB 封装（单连接）</td></tr>
+<tr><td><code>sha256.h</code></td><td>229</td><td>SHA256 / PBKDF2 / 随机数</td></tr>
+<tr><td><code>models.h</code> / <code>models.cpp</code></td><td>93 / 244</td><td>内存用户表、索引、DB 读写辅助</td></tr>
+<tr><td><code>routes.h</code></td><td>27</td><td>路由注册声明</td></tr>
+<tr><td><code>routes_public.cpp</code></td><td>420</td><td>登录/注册/兑换/榜单</td></tr>
+<tr><td><code>routes_admin.cpp</code></td><td>1892</td><td>管理员全部接口</td></tr>
+<tr><td><code>routes_teacher.cpp</code></td><td>1171</td><td>教师全部接口</td></tr>
+<tr><td><code>routes_student.cpp</code></td><td>251</td><td>学生端接口</td></tr>
+<tr><td><code>routes_parent.cpp</code></td><td>473</td><td>家长端接口</td></tr>
+<tr><td><code>routes_static.cpp</code></td><td>99</td><td>静态资源与路径校验</td></tr>
+<tr><td><code>logger.h</code> / <code>logger.cpp</code></td><td>92 / 7</td><td>日志与轮转</td></tr>
+<tr><td><code>database.h</code></td><td>9</td><td>仅 include 转发</td></tr>
+</tbody></table></div>
+<h3 id="h-1-2-为判定-框架-库行为-而定点阅读的第三方行">1.2 为判定“框架/库行为”而定点阅读的第三方行</h3>
+<ul>
+<li><code>httplib.h:44</code>（<code>CPPHTTPLIB_PAYLOAD_MAX_LENGTH</code>）、<code>1553-1568</code>（<code>get_remote_addr</code>）、<code>2955</code>/<code>3077-3079</code>（默认 payload 上限与 setter）、<code>3561-3582</code>（<code>dispatch_request</code> 异常处理）、<code>3639</code>（<code>REMOTE_ADDR</code> 注入）、<code>3666-3672</code>（路由失败后的响应写出）</li>
+<li><code>json.hpp:22491-22507</code>（<code>value()</code> 类型不匹配抛 <code>type_error.302</code>）</li>
+<li><code>sqlite3.c:14046-14052</code>（<code>SQLITE_THREADSAFE</code> 默认值 1 = 串行模式）、<code>sqlite3.h:10786-10797</code>（仅 <code>__wasi__</code> 才默认为 0）</li>
+<li><code>README.md:249,252-263</code>（编译链接命令，用于确认未传 <code>-DSQLITE_THREADSAFE</code>）</li>
+<li><code>C:\mingw64\include\c++\14.2.0\x86_64-w64-mingw32\bits\c++config.h:1693,1755</code>（<code>_GLIBCXX_USE_DEV_RANDOM</code>/<code>_GLIBCXX_USE_RANDOM_TR1</code> 均未定义）</li>
+</ul>
+<h3 id="h-1-3-执行过的关键命令-均为只读">1.3 执行过的关键命令（均为只读）</h3>
+<pre class="code" data-lang="powershell"><code># 文件清单与行数
+Get-ChildItem -Path "D:\邵敬文\comptation" -File | Select-Object Name, Length
+# 自研源码中是否存在任何互斥/原子设施
+grep "mutex|lock_guard|unique_lock|std::atomic|SQLITE_THREADSAFE"  (include: *.cpp,*.h)
+# 是否存在 set_payload_max_length / set_read_timeout / set_error_handler
+grep "set_read_timeout|set_write_timeout|set_payload_max_length|set_error_handler|new_task_queue" (*.cpp,*.h)
+# 反查种子口令哈希对应的明文（.NET SHA256 复算 22 个候选口令）
+[System.Security.Cryptography.SHA256]::Create() ...  → MATCH: admin&lt;=‘admin123’; teacher&lt;=‘teacher123’; student&lt;=‘student123’; parent&lt;=‘parent123’
+# 机械验证 pbkdf2_sha256 函数体是否引用 password 形参
+$lines = Get-Content sha256.h; $lines[93..147] | Select-String 'password'   → 仅命中第 94 行（形参本身），函数体 95-148 行零引用
+# 二进制熵源取证（不执行 server.exe，仅字节串）
+[System.IO.File]::ReadAllBytes("server.exe") 中检索 urandom/rdrand/SystemFunction036/RtlGenRandom
+  → 命中 "random_device: rdseed failed." / "random_device: rand_s failed." / advapi32!SystemFunction036
+# 响应体与 HTTP 状态码统计
+([regex]::Matches($c,'res\.status\s*=')).Count  vs  ([regex]::Matches($c,'\{"code",\s*\d+\}')).Count
+# 权限码使用面统计（check_permission_middleware 的第二个实参）
+grep 'check_permission_middleware\(req, res, "[a-z:_]+"'</code></pre>
+<blockquote><p>结论可信度声明：本报告中所有“已确认”条目均来自上述源码级证据；凡属推理延伸的，均在条目中显式标注<strong>🔶 疑似</strong>。</p></blockquote>
+<hr>
+<h2 id="h-2-结论摘要-按严重度排序">2. 结论摘要（按严重度排序）</h2>
+<div class="tw"><table>
+<thead><tr><th>id</th><th>严重度</th><th>一句话问题</th><th>位置</th></tr></thead>
+<tbody>
+<tr><td>B1</td><td><strong>blocker</strong></td><td><code>pbkdf2_sha256()</code> 的 <code>password</code> 形参在函数体内从未被引用 → 派生结果只由 salt/迭代数决定 → 对任何 <code>pbkdf2$</code> 哈希<strong>任意口令都能通过校验</strong>，完全认证绕过</td><td><code>sha256.h:94-148</code>、<code>169-188</code></td></tr>
+<tr><td>B2</td><td>high</td><td>4 个默认账号以<strong>裸 SHA256 无盐</strong>哈希硬编码为 <code>admin123</code>/<code>teacher123</code>/<code>student123</code>/<code>parent123</code>，且首次登录会被自动“升级”为 B1 的坏哈希</td><td><code>main.cpp:250-254</code>、<code>models.cpp:17-22</code>、<code>routes_public.cpp:45-51</code></td></tr>
+<tr><td>B3</td><td>high</td><td><code>login_attempts()</code> 返回的函数级 <code>static std::map</code> 被 8 个工作线程无锁读写 → 数据竞争/UB、计数丢失，甚至可能崩溃</td><td><code>auth.h:107-139</code>、<code>main.cpp:306</code></td></tr>
+<tr><td>B4</td><td>high</td><td>登录锁定键直接信任 <code>X-Forwarded-For</code>：伪造该头即可<strong>无限爆破</strong>；省略该头则可反向<strong>永久锁死任意账号</strong>；<code>/api/parent/login</code> 完全没有锁定</td><td><code>auth.h:141-154</code>、<code>routes_parent.cpp:49-77</code></td></tr>
+<tr><td>B5</td><td>high</td><td>全局 <code>users</code> 向量 / <code>user_id_map</code> 等 <code>unordered_map</code> / <code>points_records</code> 被多线程无锁读写：<code>find_user_by_id()</code> 返回的 <code>User*</code> 在并发 <code>push_back</code> 后<strong>悬垂</strong>，跨请求写已释放内存</td><td><code>models.cpp:165-221</code>、<code>routes_public.cpp:167,325,381</code></td></tr>
+<tr><td>B6</td><td>high</td><td><code>users.erase(it)</code> 后仅删除被删用户的索引项，后续所有元素的内存下标全部错位 → <code>find_user_by_id()</code> <strong>返回另一个用户</strong>（越权/串号）</td><td><code>models.cpp:164-211</code>、<code>routes_teacher.cpp:259-260</code>、<code>routes_admin.cpp:826-827</code></td></tr>
+<tr><td>B7</td><td>high</td><td>单条共享连接上执行 <code>BEGIN TRANSACTION</code>/<code>COMMIT</code>/<code>ROLLBACK</code>：事务是<strong>连接级全局</strong>的，其他线程的写入会被卷入、甚至在回滚时被一起丢弃</td><td><code>routes_admin.cpp:1453,1665,1686</code>、<code>sqlite_wrapper.h:14-210</code></td></tr>
+<tr><td>B8</td><td>high</td><td>兑换流程“读积分→判断→绝对值写回”非原子 + <code>execute_bind</code> 无法区分 0 行受影响 → <strong>同一学生双花、库存超卖</strong>；“不存在则 404”的分支系统性失效</td><td><code>routes_public.cpp:360-385</code>、<code>sqlite_wrapper.h:145-147</code></td></tr>
+<tr><td>B9</td><td>high</td><td><code>/api/teacher/*</code> 的<strong>写接口完全没有班级作用域</strong>（读取类接口有），任意教师可改/删任意学生、给任意学生加减积分 → 水平越权(IDOR)</td><td><code>routes_teacher.cpp:78-96</code> vs <code>193-201,298-300,487-489</code></td></tr>
+<tr><td>B10</td><td>high</td><td>处理器只捕获 <code>json::parse_error</code>，其余异常被 httplib 统一转成 HTTP 500 并把异常原文写进 <strong><code>EXCEPTION_WHAT</code> 响应头</strong>回显客户端</td><td><code>httplib.h:3561-3582</code>、<code>routes_public.cpp:88,174,392</code> 等</td></tr>
+<tr><td>B11</td><td>medium</td><td><code>get_session_info</code>/<code>delete_session</code>/<code>cleanup_expired_sessions</code> 仍用 <code>char[1024/256/128]</code>+<code>snprintf</code> 拼 SQL（同文件上方已是参数化）→ 维护陷阱 + 静默截断</td><td><code>auth.h:242-246,261-266,270-274</code></td></tr>
+<tr><td>B12</td><td>medium</td><td><code>query()/query_bind()</code> prepare 失败返回<strong>空数组</strong>，与“无数据”不可区分，调用方把 DB 错误当成业务结果（含把错误当成 403）</td><td><code>sqlite_wrapper.h:53-62,151-159</code>、<code>auth.h:246</code>、<code>routes_parent.cpp:25-30</code></td></tr>
+<tr><td>B13</td><td>medium</td><td>备份接口判据写错：<code>VACUUM INTO</code> 成功也返回空数组，<code>is_null()</code> 恒为 false → <strong>永远返回“备份失败”500</strong></td><td><code>routes_admin.cpp:335-349</code></td></tr>
+<tr><td>B14</td><td>medium</td><td>未调用 <code>set_payload_max_length</code>（默认上限 = <code>SIZE_MAX</code>）也未设读超时 → 超大 body / 慢速连接可耗尽内存</td><td><code>httplib.h:44,2955,3077</code>、<code>main.cpp:286-306</code></td></tr>
+<tr><td>B15</td><td>medium</td><td><code>/api/admin/import</code> 把导出文件里 role_id≠3 的用户<strong>静默降级为学生</strong>；新用户不更新索引（仅靠导入结束的全量重建兜底，异常路径下内存与库分叉）</td><td><code>routes_admin.cpp:1470-1475,1494-1502,1667</code></td></tr>
+<tr><td>B16</td><td>medium</td><td>角色/权限的增删改<strong>只改内存不落库</strong>，而鉴权只读内存、<code>/api/admin/roles</code> 却读库 → 功能无效、重启丢失、两处数据不一致</td><td><code>routes_admin.cpp:979-981,1044-1046,936-940</code>、<code>auth.h:280-303</code></td></tr>
+<tr><td>B17</td><td>medium</td><td>业务码全靠手工拼 <code>{"code":N}</code>（217 处），仅 6 处设置 <code>res.status</code> → 绝大多数业务错误以 <strong>HTTP 200</strong> 返回，状态码与业务码混用</td><td>全 <code>routes_*.cpp</code></td></tr>
+<tr><td>B18</td><td>medium</td><td>内存 <code>users</code> 与 DB 双份数据源不原子：积分用绝对值覆盖、删班级只改库、<code>points_records</code> 只增不载、CSV 导入不返回初始口令</td><td><code>models.cpp:93-97</code>、<code>routes_public.cpp:381-382</code>、<code>routes_admin.cpp:1877-1879,1389-1399</code>、<code>routes_teacher.cpp:926,959-967</code></td></tr>
+<tr><td>B19</td><td>medium</td><td>无统一响应封装；<code>/api/admin/system</code> 与 <code>/api/admin/system/config</code> 返回写死的假数据；5 个权限码从未被任何中间件使用</td><td><code>routes_admin.cpp:60-70,1229-1244</code>、<code>main.cpp:230-248</code></td></tr>
+<tr><td>B20</td><td>low</td><td>旧哈希路径用 <code>std::string::operator==</code>（非常量时间）；密码长度校验只在 2 个入口存在；<code>atoi</code> 读迭代数无上限</td><td><code>sha256.h:176,187</code>、<code>routes_public.cpp:132-136</code>、<code>routes_admin.cpp:491-492</code></td></tr>
+<tr><td>B21</td><td>low</td><td><code>std::random_device</code> 每次调用重建、每字节一次 <code>rd()</code>、<code>rd() % n</code> 存在模偏差（不影响安全性，属精度/性能问题）</td><td><code>sha256.h:151-159,200-227</code></td></tr>
+<tr><td>B22</td><td>low</td><td>🔶疑似 <code>localtime()</code> 在非加锁上下文被并发调用，依赖 CRT 是否为线程局部缓冲</td><td><code>routes_teacher.cpp:554-557,646-647</code>、<code>routes_admin.cpp:1277-1285</code></td></tr>
+<tr><td>B23</td><td>low</td><td>单连接 + SQLite 串行模式使 8 线程无法并发用库；每请求 3~4 次会话查询（含 1 次 DELETE）、列表接口 N+1 查询</td><td><code>sqlite_wrapper.h:27-29</code>、<code>auth.h:196-197</code>、<code>routes_admin.cpp:1708-1710</code>、<code>routes_teacher.cpp:560-570</code></td></tr>
+<tr><td>B24</td><td>low</td><td><code>get_cookie_value()</code> 用 <code>find("sid=")</code> 裸子串匹配，<code>xsid=</code> 会被当成 <code>sid</code></td><td><code>auth.h:67-82</code></td></tr>
+<tr><td>B25</td><td>low</td><td><code>set_cors_headers(res)</code> 单参重载是死代码（含未使用变量），401/403 与 OPTIONS 预检均不回显 ACAO</td><td><code>auth.h:22-33,329,338,350,358</code>、<code>routes_static.cpp:72-75</code></td></tr>
+<tr><td>B26</td><td>low</td><td>积分记录响应里 <code>operatorName</code> 硬编码 <code>"王老师"</code></td><td><code>routes_teacher.cpp:363</code></td></tr>
+<tr><td>B27</td><td>low</td><td>检测到旧 schema 时直接 <code>std::remove()</code> 删库重建（无备份）；删除失败路径未处理，后续 <code>row.value("id","")</code> 会抛 <code>type_error</code> 且 <code>main</code> 无捕获</td><td><code>main.cpp:60-75</code>、<code>models.cpp:63</code></td></tr>
+<tr><td>B28</td><td>low</td><td>声明了外键但从未 <code>PRAGMA foreign_keys=ON</code> → 外键约束全部不生效</td><td><code>main.cpp:108-211</code>、<code>sqlite_wrapper.h:19-32</code></td></tr>
+<tr><td>B29</td><td>low</td><td>DB 层错误只写 <code>std::cerr</code>（不走 <code>Logger</code>：不落轮转文件、无时间戳、GUI 下可能不可见）</td><td><code>sqlite_wrapper.h:45-48,60,132,157</code></td></tr>
+<tr><td>B30</td><td>low</td><td>日志轮转在加锁<strong>之前</strong>执行（TOCTOU/并发 rename），且每条日志都 <code>stat</code>+<code>open</code></td><td><code>logger.h:41-62</code></td></tr>
+</tbody></table></div>
+<p><strong>统计：blocker 1 / high 9 / medium 10 / low 10，合计 30 条（其中 1 条标注为疑似）。</strong></p>
+<hr>
+<h2 id="h-3-逐条发现详情">3. 逐条发现详情</h2>
+<h3 id="h-b1-pbkdf2_sha256-完全忽略-password-参数-构成认证绕过-blocker">B1 —— <code>pbkdf2_sha256()</code> 完全忽略 password 参数，构成认证绕过【blocker】</h3>
+<p><strong>位置</strong>：<code>sha256.h:94-148</code>（函数体）、<code>sha256.h:162-166</code>（<code>hash_password</code>）、<code>sha256.h:169-188</code>（<code>verify_password</code>）；调用方 <code>routes_public.cpp:45-51,159</code>、<code>routes_parent.cpp:73</code>、<code>routes_admin.cpp:514,626,880,1470,1491-1492</code>、<code>routes_teacher.cpp:136,946</code></p>
+<p><strong>证据</strong>（原文片段）：</p>
+<pre class="code" data-lang="cpp"><code>// sha256.h:94-109
+inline std::string pbkdf2_sha256(const std::string&amp; password, const std::string&amp; salt,
+                                 int iterations = 100000) {
+    const int BLOCK = 64;
+    unsigned char k_ipad[BLOCK] = {0};
+    unsigned char k_opad[BLOCK] = {0};
+    if (salt.size() &gt; (size_t)BLOCK) {
+        std::string s = sha256(salt);                    // ← HMAC 密钥取自 salt，而非 password
+        std::memcpy(k_ipad, s.data(), s.size() &lt; 32 ? s.size() : 32);
+        std::memcpy(k_opad, s.data(), s.size() &lt; 32 ? s.size() : 32);
+    } else {
+        std::memcpy(k_ipad, salt.data(), salt.size());    // ← 同上
+        std::memcpy(k_opad, salt.data(), salt.size());
+    }
+    for (int i = 0; i &lt; BLOCK; i++) { k_ipad[i] ^= 0x36; k_opad[i] ^= 0x5c; }</code></pre>
+<pre class="code" data-lang="cpp"><code>// sha256.h:112-126
+    unsigned char u[32];
+    {
+        std::string msg;
+        msg.append((char*)k_ipad, BLOCK);
+        msg.append(salt);                                 // ← 消息体也是 salt，password 缺席
+        msg.push_back(0); msg.push_back(0); msg.push_back(0); msg.push_back(1); // INT(1) BE
+        std::string h1 = sha256(msg);</code></pre>
+<pre class="code" data-lang="cpp"><code>// sha256.h:129-142（迭代段同样只使用 u / k_opad，无 password）
+    for (int i = 1; i &lt; iterations; i++) {
+        std::string msg;
+        msg.append((char*)k_ipad, BLOCK);
+        msg.append((char*)u, 32);
+        std::string h1 = sha256(msg);</code></pre>
+<pre class="code" data-lang="cpp"><code>// sha256.h:179-184（校验段）
+        std::string calc = pbkdf2_sha256(password, salt, iters);
+        if (calc.size() != dk.size()) return false;
+        unsigned char diff = 0;
+        for (size_t i = 0; i &lt; calc.size(); i++) diff |= (unsigned char)(calc[i] ^ dk[i]);
+        return diff == 0;</code></pre>
+<p><strong>问题</strong>：机械核查已确认——<code>password</code> 这个标识符在 <code>pbkdf2_sha256</code> 函数体内（第 95-148 行）<strong>出现次数为 0</strong>，只出现在第 94 行的形参列表中：</p>
+<pre class="code" data-lang="powershell"><code>$lines = Get-Content -LiteralPath 'D:\邵敬文\comptation\sha256.h'
+($lines[93..147] | Select-String 'password').Count   # → 1（即形参那一行）</code></pre>
+<p>因此派生值 <code>dk = F(salt, iterations)</code>，与口令完全无关。而 <code>verify_password()</code> 用<strong>存储串里自带的 salt 与 iters</strong> 重算同一个 <code>F</code>，故 <code>calc == dk</code> 恒成立 → <strong>对任何 <code>pbkdf2$</code> 格式的哈希，任何口令（甚至空串）都校验通过</strong>。这不是“弱哈希”，而是彻底的认证绕过。</p>
+<p><strong>影响面</strong>（凡 <code>password_hash</code> 以 <code>pbkdf2$</code> 开头的账号全部中招）：</p>
+<ul>
+<li>自助注册学生：<code>routes_public.cpp:159</code>（<code>hash_password(password)</code>）；</li>
+<li>管理员创建/编辑/重置：<code>routes_admin.cpp:514</code>、<code>626</code>、<code>880</code>、<code>1470</code>、<code>1491-1492</code>；</li>
+<li>教师创建学生（含 CSV 批量导入）：<code>routes_teacher.cpp:136</code>、<code>946</code>；</li>
+<li><strong>自动升级链（最致命）</strong>：<code>routes_public.cpp:45-51</code></li>
+</ul>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:45-51
+            bool password_match = verify_password(password, user-&gt;password_hash);
+            // 安全修复 V5：旧版无盐哈希登录成功后自动升级为 PBKDF2
+            if (password_match &amp;&amp; user-&gt;password_hash.compare(0, 7, "pbkdf2$") != 0) {
+                std::string new_hash = hash_password(password);
+                user-&gt;password_hash = new_hash;
+                save_user_to_db(*user);
+            }</code></pre>
+<p>种子账号（B2）当前是裸 SHA256，走 <code>sha256.h:187</code> 的正确分支；但管理员<strong>只要正常登录一次</strong>，其哈希就被就地改写成被污染的 <code>pbkdf2$...</code>，此后任意口令均可登录 <code>admin</code>。即：一次合法登录即可永久打开后门。</p>
+<ul>
+<li>家长登录同样走 <code>verify_password</code>（<code>routes_parent.cpp:73</code>）→ 家长账号任意口令可登录。</li>
+</ul>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>按 RFC 8018 重写 <code>pbkdf2_sha256</code>：<code>U1 = HMAC-SHA256(key=password, msg=salt||INT32BE(1))</code>，迭代 <code>Ui = HMAC(key=password, msg=U(i-1))</code>，<code>T = U1 xor U2 xor ...</code>；不要再用自拼 ipad/opad 的方式，直接写一个 <code>hmac_sha256(key, msg)</code> 原语并单独测试。</li>
+<li>立刻用 RFC 6070/官方测试向量做单元测试（<code>pbkdf2("password","salt",1)</code> 等固定向量），把“password 未参与”这类错误钉死在测试里。</li>
+<li>数据修复：现有 <code>pbkdf2$</code> 记录全部视为失效，强制走“重置密码/重新注册”流程（可用 SQL：<code>UPDATE users SET password_hash='' WHERE password_hash LIKE 'pbkdf2$%'</code>，并在 <code>verify_password</code> 中对空哈希恒返回 false）。</li>
+<li>在 <code>verify_password</code> 内加防御性断言：<code>calc == F(salt,iters)</code> 型退化可用“两次不同口令必须得到不同结果”的启动自检拦截（fail-fast，避免同类回归）。</li>
+</ol>
+<p><strong>修复成本</strong>：M（重写 ~60 行 + 测试向量）；若含存量数据迁移与用户通知，则 L。</p>
+<hr>
+<h3 id="h-b2-硬编码弱口令-无盐-sha256-种子数据-high">B2 —— 硬编码弱口令 + 无盐 SHA256 种子数据【high】</h3>
+<p><strong>位置</strong>：<code>main.cpp:250-254</code>（DB 种子 SQL）、<code>models.cpp:17-22</code>（内存兜底表）、<code>routes_public.cpp:47-51</code>（自动升级）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="sql"><code>-- main.cpp:250-254
+            INSERT OR IGNORE INTO users (id, username, password_hash, role_id, name, className, points) VALUES
+                ('admin-01', 'admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 1, '管理员', '系统管理', 0),
+                ('teacher-001', 'teacher', 'cde383eee8ee7a4400adf7a15f716f179a2eb97646b37e089eb8d6d04e663416', 2, '王老师', '高二(1)班', 0),
+                ('student-02-01-01', 'student', '703b0a3d6ad75b649a28adde7d83c6251da457549263bc7ff45ec709b0a8448b', 3, '张同学', '高二(1)班', 150),
+                ('parent-001', 'parent', '82e3edf5f5f3a46b5f94579b61817fd9a1f356adcef5ee22da3b96ef775c4860', 4, '张同学家长', '', 0);</code></pre>
+<pre class="code" data-lang="cpp"><code>// models.cpp:16-22
+// 默认用户数据（内存模式时使用，密码均为 SHA256 哈希）
+vector&lt;User&gt; users = {
+    {"admin-01", "admin", "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9", 1, "管理员", "系统管理", 0, ""},
+    ...</code></pre>
+<p><strong>问题</strong>（已用 .NET SHA256 复算确认明文）：</p>
+<div class="tw"><table>
+<thead><tr><th>账号</th><th>哈希</th><th>明文</th></tr></thead>
+<tbody>
+<tr><td>admin</td><td><code>240be518…20a9</code></td><td><code>admin123</code></td></tr>
+<tr><td>teacher</td><td><code>cde383ee…e663416</code></td><td><code>teacher123</code></td></tr>
+<tr><td>student</td><td><code>703b0a3d…b0a8448b</code></td><td><code>student123</code></td></tr>
+<tr><td>parent</td><td><code>82e3edf5…c775c4860</code></td><td><code>parent123</code></td></tr>
+</tbody></table></div>
+<p>即：4 个默认账号的口令是“用户名+123”这种可猜形式，且以<strong>无盐 SHA256</strong> 存储（<code>models.cpp:16</code> 的注释自己也承认）。哈希本身可被彩虹表/穷举秒破，且同一口令在不同库中哈希相同。结合 <code>routes_public.cpp:47-51</code> 的自动升级，管理员账号存在“登录一次后即被 B1 永久接管”的链路。</p>
+<p>另注：当数据库打开失败时（<code>main.cpp:73-75</code> 仅 warning），服务会<strong>退化为内存模式</strong>并使用这份硬编码表继续提供服务，此时任何口令修改/新增用户都无法持久化，安全状态不可恢复（<code>save_user_to_db</code> 静默失败）。</p>
+<p><strong>影响面</strong>：<code>/api/auth/login</code>、<code>/api/parent/login</code>；管理员会话可获得全部 <code>system:manage</code>/<code>user:manage</code> 权限（<code>main.cpp:244-248</code>）。当前 <code>config.json:3</code> 与 <code>config.h:15</code> 默认只监听 <code>127.0.0.1</code>（安全修复 V14），把远程利用限制为需要改配置或同机访问。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>首次启动时用 <code>generate_random_password()</code> 生成强口令并<strong>只在控制台/一次性文件输出</strong>，不写入源码；或强制“首登必须改密”。</li>
+<li>种子数据里不要放可用口令：插入 <code>password_hash=''</code>（不可登录）+ 一次性初始化令牌，或提供 <code>--init-admin</code> 命令行参数设置口令。</li>
+<li>去掉内存兜底账号表（或让磁盘库打开失败直接退出，<code>exit(1)</code>），避免静默降级。</li>
+<li>保留向后兼容：在 <code>verify_password</code> 中对裸 SHA256 分支加日志告警，统计并清理存量弱哈希。</li>
+</ol>
+<p><strong>修复成本</strong>：S（改种子/初始化流程）～ M（含首登改密流程）。</p>
+<hr>
+<h3 id="h-b3-login_attempts-静态-std-map-被-8-线程无锁读写-high">B3 —— <code>login_attempts()</code> 静态 std::map 被 8 线程无锁读写【high】</h3>
+<p><strong>位置</strong>：<code>auth.h:107-139</code>；线程模型依据 <code>main.cpp:306</code> + <code>config.json:5</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// auth.h:106-114
+// ====== 安全修复 V8：登录失败锁定（内存计数，按用户名 + 客户端 IP 维度）======
+struct LoginAttempt {
+    int fails = 0;
+    time_t locked_until = 0;
+};
+inline std::map&lt;std::string, LoginAttempt&gt;&amp; login_attempts() {
+    static std::map&lt;std::string, LoginAttempt&gt; m;
+    return m;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:126-134
+inline void login_record_fail(const std::string&amp; key) {
+    auto&amp; m = login_attempts();
+    auto&amp; a = m[key];           // ← 并发插入会触发红黑树旋转/新节点分配
+    a.fails++;
+    if (a.fails &gt;= g_config.max_login_attempts) { ... }
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// main.cpp:305-306
+    // 8. 设置线程池
+    svr.new_task_queue = [&amp;]() { return new httplib::ThreadPool(g_config.thread_count); };</code></pre>
+<pre class="code" data-lang="json"><code>// config.json:4-6
+        "port": 8080,
+        "thread_count": 8</code></pre>
+<p><strong>问题</strong>：<code>httplib::Server::listen()</code> 用该 lambda 创建线程池，<strong>8 个 worker 线程并发执行所有 handler</strong>；<code>std::map</code>（非线程安全容器）被 <code>login_can_try</code>（读+遍历）、<code>login_record_fail</code>（写+插节点）、<code>login_record_success</code>（erase）同时访问，全程无 <code>mutex</code>/原子量。全项目 grep 确认除 <code>Logger</code>（<code>logger.h:61,89</code>）与 httplib 内部外<strong>没有任何互斥设施</strong>。</p>
+<p>后果分三层：</p>
+<ol>
+<li><strong>未定义行为（最坏是崩溃）</strong>：<code>map::operator[]</code> 在插入时分配/链接节点并可能旋转；与另一线程的 <code>find</code>/<code>erase</code> 并发 → 读到半链接的指针 → 段错误或静默丢节点。无法通过编译器开关消除。</li>
+<li><strong>计数丢失 / 阈值失效</strong>：<code>a.fails++</code> 是非原子读-改-写，并发失败会合并计数，导致锁定阈值（5）实际需要更多次才触发。</li>
+<li><strong>检查-使用竞态</strong>：<code>login_can_try</code> 与 <code>login_record_fail</code> 之间无事务性，攻击者并发请求可越过锁定窗口。</li>
+</ol>
+<p><strong>影响面</strong>：<code>/api/auth/login</code>（<code>routes_public.cpp:29-30,39,53,59</code>）。触发路径：任意两个并发登录（不需要攻击者，正常用户+一次错误口令即可）→ 两个线程同时进入 <code>login_attempts()</code>。这是<strong>必然发生</strong>而非理论可能。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>最小改动：把 map 与一把 <code>std::mutex</code> 封装成一个结构体，所有访问（含 <code>login_can_try</code> 的读）在锁内完成；<code>login_can_try</code> 改为返回“允许/拒绝”结果值，避免把引用/迭代器暴露出去。</li>
+<li>更彻底：改为 <code>std::unordered_map&lt;std::string, LoginAttempt&gt;</code> + 分片锁，或直接把锁定计数放到 SQLite（<code>login_attempts(key, fails, locked_until)</code> 表 + <code>UPDATE ... SET fails=fails+1</code> 原子自增 + UNIQUE 索引），顺带获得持久化与上限治理（见 B4）。</li>
+<li>加清理：<code>login_can_try</code> 时惰性删除 <code>locked_until</code> 已过期且 <code>fails==0</code> 的条目，并设 <code>max_entries</code> 上限（见 B4）。</li>
+</ol>
+<p><strong>修复成本</strong>：S（加锁版）～ M（迁移到 DB）。</p>
+<hr>
+<h3 id="h-b4-登录锁定键信任-x-forwarded-for-可绕过亦可反向锁死账号-high">B4 —— 登录锁定键信任 <code>X-Forwarded-For</code>：可绕过亦可反向锁死账号【high】</h3>
+<p><strong>位置</strong>：<code>auth.h:141-154</code>；对照 <code>httplib.h:1553-1568,3639</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// auth.h:141-154
+inline std::string login_client_key(const httplib::Request&amp; req, const std::string&amp; username) {
+    std::string ip;
+    auto it = req.headers.find("X-Forwarded-For");
+    if (it != req.headers.end()) {
+        ip = it-&gt;second;
+        auto comma = ip.find(',');
+        if (comma != std::string::npos) ip = ip.substr(0, comma);
+    } else {
+        auto rit = req.headers.find("REMOTE_ADDR");
+        if (rit != req.headers.end()) ip = rit-&gt;second;
+    }
+    if (ip.empty()) ip = "unknown";
+    return ip + "|" + username;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// httplib.h:3639（服务端自己注入的 REMOTE_ADDR 才是可信来源）
+  req.set_header("REMOTE_ADDR", strm.get_remote_addr());</code></pre>
+<pre class="code" data-lang="cpp"><code>// httplib.h:1553-1568（get_remote_addr 只返回 IP，不含端口，故 fallback 键是稳定的）
+inline std::string get_remote_addr(socket_t sock) {
+  ...
+    if (!getnameinfo(..., NI_NUMERICHOST)) { return ipstr.data(); }
+  return std::string();
+}</code></pre>
+<p><strong>问题</strong>：<code>X-Forwarded-For</code> 是<strong>客户端可直接伪造</strong>的请求头，服务端没有启用任何可信代理校验（也没有 <code>TrustedProxy</code> 概念）。因此锁定维度 <code>ip|username</code> 完全由攻击者挑选：</p>
+<ol>
+<li><strong>锁定绕过（爆破无限次）</strong>：每次请求发送不同的 <code>X-Forwarded-For: 1.2.3.&lt;n&gt;</code>，则每个键都是首次出现 → <code>fails</code> 永远停在 1 → 阈值 5 永不触发 → 可对任意账号无限次猜口令。这是对“安全修复 V8”的完全绕过。</li>
+<li><strong>反向 DoS（锁死他人账号）</strong>：不发送 <code>X-Forwarded-For</code> 时走 <code>REMOTE_ADDR</code>（httplib 注入，真实且稳定）→ 攻击者只要用自己 IP 对 <code>admin</code> 连续失败 5 次，即可让 <code>admin</code> 被锁定 <code>lockout_minutes=30</code> 分钟（<code>config.json:20</code>），并每 30 分钟重复一次 → 管理员无法登录。</li>
+<li><strong>无上限/无清理</strong>：该 map 没有任何条目上限、TTL 或淘汰逻辑，键中含攻击者可控字符串 → 伪造海量 XFF 值即可让 map 无界增长（内存耗尽 DoS），单次请求的内存成本约“键长度 + 节点开销”。</li>
+<li><strong>家长端完全无锁定</strong>：<code>/api/parent/login</code>（<code>routes_parent.cpp:49-77</code>）根本没有调用 <code>login_can_try</code>/<code>login_record_fail</code>（grep 确认这三函数只在 <code>routes_public.cpp</code> 出现），家长账号可被无限爆破；再叠加 B1，家长口令实际已无意义。</li>
+</ol>
+<p><strong>影响面</strong>：<code>/api/auth/login</code>、<code>/api/parent/login</code>。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>默认<strong>不信任</strong> XFF；仅在配置中显式声明可信反向代理（如 <code>"trust_proxy": true</code> + <code>"trusted_proxies": ["127.0.0.1"]</code>）且对端 IP 命中白名单时，才取 XFF 的<strong>最后一个</strong>（最靠近本机的一跳）地址，而不是第一个。</li>
+<li>统一用 <code>req.remote_addr</code> 概念（httplib 未暴露 <code>remote_addr</code> 字段，因此保留 <code>REMOTE_ADDR</code> 头的读取，但去掉 XFF 分支），或至少让 XFF 只作为“附加标签”参与键而非唯一 ip。</li>
+<li>键改为只按 <strong>username</strong> 计数 + 按 IP 计数两套独立维度：账号维度（防定向爆破）+ IP 维度（防撞库），避免 IP 伪造直接抹掉账号维度。</li>
+<li>给 map 加上限（如 10k 条）+ 定时清理过期条目（<code>locked_until &lt; now &amp;&amp; fails == 0</code>），或迁移到 SQLite 表并对 <code>key</code> 建 UNIQUE 索引 + 定期 <code>DELETE</code>。</li>
+<li>给 <code>/api/parent/login</code> 接入同一套锁定逻辑，并统一到 B3 的加锁封装中。</li>
+</ol>
+<p><strong>修复成本</strong>：S（去 XFF + 加账号维度）～ M（可信代理配置 + 上限治理 + 表化）。</p>
+<hr>
+<h3 id="h-b5-全局-users-索引-map-points_records-多线程无锁读写-悬垂指针与-rehash-竞态-hi">B5 —— 全局 users/索引 map/points_records 多线程无锁读写：悬垂指针与 rehash 竞态【high】</h3>
+<p><strong>位置</strong>：<code>models.cpp:14,164-169,189-221</code>、<code>routes_public.cpp:37-51,167-170,325,381-385</code>、<code>routes_teacher.cpp:78,143,331-340,952</code>、<code>routes_admin.cpp:367,426,520,632,1263,1345,1501</code>、<code>auth.h:280-317</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// models.cpp:164-169
+// 安全修复 V12：索引改为存储 users 向量的下标，避免副本与原数据不一致
+unordered_map&lt;string, size_t&gt; user_id_map;           // 用户ID到 users 下标的映射
+unordered_map&lt;string, size_t&gt; user_username_map;     // 用户名到 users 下标的映射
+...
+unordered_map&lt;int, vector&lt;int&gt;&gt; role_permission_map; // 角色ID到权限ID列表的映射
+
+// models.cpp:206-221
+User* find_user_by_id(const string&amp; user_id) {
+    auto it = user_id_map.find(user_id);
+    if (it != user_id_map.end() &amp;&amp; it-&gt;second &lt; users.size()) {
+        return &amp;users[it-&gt;second];          // ← 返回 users 元素地址
+    }
+    return nullptr;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:325-385（指针跨多次 DB 调用长期持有，随后写回）
+        User* user = find_user_by_id(user_id);
+        ...
+            user-&gt;points -= cost;                       // 381：写 users 向量内部对象
+            update_user_points_in_db(user-&gt;id, user-&gt;points);</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:167-170（并发增长 users 向量）
+            users.push_back(new_user);
+            update_user_index(new_user);
+
+// auth.h:355（每个受保护请求都会遍历 users）
+    if (!Auth::check_permission(user_id, permission_code)) { ... }
+// auth.h:281-283
+        auto user_it = find_if(users.begin(), users.end(), [&amp;](const User&amp; u) { return u.id == user_id; });</code></pre>
+<p><strong>问题</strong>：<code>users</code> 是 <code>std::vector&lt;User&gt;</code>，<code>user_id_map</code>/<code>user_username_map</code> 是 <code>std::unordered_map</code>，<code>points_records</code> 是 <code>std::vector&lt;PointsRecord&gt;</code>，三者都是<strong>进程级全局、8 线程共享、无任何同步</strong>。三类真实竞态：</p>
+<ol>
+<li><strong>悬垂指针（use-after-realloc）</strong>：<code>find_user_by_id()</code> 返回 <code>&amp;users[i]</code>；另一线程执行 <code>users.push_back(...)</code>（注册 <code>routes_public.cpp:167</code>、教师加学生 <code>routes_teacher.cpp:143</code>、管理员加用户 <code>routes_admin.cpp:520</code>、批量导入 <code>routes_admin.cpp:632</code>、数据导入 <code>routes_admin.cpp:1501</code>）触发向量扩容 → 原缓冲区释放 → <code>user-&gt;points -= cost</code>（<code>routes_public.cpp:381</code>）或 <code>user-&gt;password_hash = new_hash</code>（<code>routes_public.cpp:49</code>）<strong>写入已释放内存</strong> → 堆破坏/崩溃/任意数据损坏。触发条件：一次兑换或一次旧哈希登录 与 一次用户创建并发——在 8 线程下属于高概率事件。</li>
+<li><strong>容器迭代失效</strong>：<code>auth.h:281-283</code> 的 <code>find_if(users.begin(), users.end(), ...)</code> 在<strong>每个受保护请求</strong>都会执行；若同时发生 <code>push_back</code>，迭代器与被比较的引用全部失效（UB）。<code>routes_teacher.cpp:78</code>、<code>routes_admin.cpp:367,426,1263,1345</code> 等也存在遍历。</li>
+<li><strong>unordered_map rehash 竞态</strong>：<code>update_user_index()</code>（<code>models.cpp:189-197</code>）在<strong>每个新用户</strong>插入时写 <code>user_id_map[user.id]=i</code> → 可能触发 rehash（重链全部节点）；而 <code>find_user_by_username()</code>（<code>models.cpp:215-221</code>）在<strong>每次登录</strong>读取同一容器 → 读写并发 → UB/崩溃。</li>
+<li><strong><code>points_records</code> 并发 push_back</strong>：<code>routes_teacher.cpp:340</code> 在多线程下 push_back 同一全局向量，并用 <code>int new_record_id = points_records.size() + 1;</code>（<code>routes_teacher.cpp:331</code>）生成 ID → 既可能崩溃，也会产生<strong>重复/错误的记录 ID</strong>（该 ID 还会回给前端 <code>routes_teacher.cpp:356</code>）。</li>
+</ol>
+<p><strong>影响面</strong>：登录（读密码哈希）、注册、<code>/api/auth/me</code>、<code>/api/user/info</code>、<code>/api/student/info</code>、<code>/api/mall/redeem</code>、所有教师/管理员用户类接口、权限校验（<code>auth.h:280-317</code> 两个函数都遍历全局容器）。</p>
+<p><strong>建议改法</strong>（按优先级）：</p>
+<ol>
+<li>引入一把全局 <code>std::shared_mutex user_mutex</code>，约定：<strong>任何对 <code>users</code> / 两张索引 map / <code>points_records</code> 的访问都必须持锁</strong>（读用 <code>shared_lock</code>，增删改用 <code>unique_lock</code>）；<code>find_user_by_id()</code> 不得再返回裸指针，改为返回 <code>std::optional&lt;User&gt;</code> 值拷贝或“按 id 的受锁访问器”（如 <code>with_user(id, [](User&amp;){...})</code> 回调式 API），从类型上禁止悬垂。</li>
+<li>若要保持指针语义，则用 <code>std::deque&lt;User&gt;</code>（push_back 不使元素失效）或 <code>std::vector&lt;std::unique_ptr&lt;User&gt;&gt;</code>，让元素地址稳定；但索引 map 的并发仍需锁。</li>
+<li>积分/口令等<strong>变更</strong>统一走“DB 为准 + 局部重载”的短临界区，禁止在锁外长时间持有引用。</li>
+<li><code>points_records</code> 的 ID 改为由 SQLite 生成（<code>points_records.id</code> 已是 <code>INTEGER PRIMARY KEY AUTOINCREMENT</code>，见 <code>main.cpp:113-122</code>），用 <code>last_insert_rowid</code> 或直接由 DB 返回，去掉 <code>size()+1</code>。</li>
+<li>加 CI 校验：<code>-fsanitize=thread</code>（Linux CI）或 Windows 上的 Application Verifier/PageHeap 跑并发登录+注册压测，可稳定复现上述 UB。</li>
+</ol>
+<p><strong>修复成本</strong>：M（加锁 + 改写指针 API 的调用点，调用点集中在 6 个文件约 30 处）。</p>
+<hr>
+<h3 id="h-b6-users-erase-后索引错位-find_user_by_id-返回另一个用户-high">B6 —— <code>users.erase()</code> 后索引错位 → <code>find_user_by_id()</code> 返回另一个用户【high】</h3>
+<p><strong>位置</strong>：<code>models.cpp:164-166,189-211</code>、<code>routes_teacher.cpp:255-263</code>、<code>routes_admin.cpp:812-829</code>、<code>main.cpp:303</code>、<code>routes_admin.cpp:1667</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:257-261
+            } else {
+                string deleted_username = it-&gt;username;
+                users.erase(it);                       // ← 后续所有元素下标 -1
+                remove_user_index(student_id, deleted_username);   // ← 只删被删用户自己的两项
+                delete_user_from_db(student_id);</code></pre>
+<pre class="code" data-lang="cpp"><code>// models.cpp:200-211
+void remove_user_index(const string&amp; user_id, const string&amp; username) {
+    user_id_map.erase(user_id);
+    user_username_map.erase(username);
+}
+User* find_user_by_id(const string&amp; user_id) {
+    auto it = user_id_map.find(user_id);
+    if (it != user_id_map.end() &amp;&amp; it-&gt;second &lt; users.size()) {
+        return &amp;users[it-&gt;second];        // ← 下标未随 erase 修正
+    }
+    return nullptr;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:826-827
+                users.erase(user_it);
+                remove_user_index(deleted_id, deleted_username);</code></pre>
+<p><strong>问题</strong>：索引表里存的是<strong>向量下标</strong>，而下标只有在“没有发生过 erase”时才稳定。删除任意位置的用户后，被删元素之后的所有用户真实下标都减 1，但 <code>user_id_map</code>/<code>user_username_map</code> 中它们的值没有更新（<code>remove_user_index</code> 只删被删用户自己的两项，<code>update_user_index</code> 只修一个用户）。于是：</p>
+<ul>
+<li>若错位后的下标 <strong>仍在</strong> <code>users.size()</code> 范围内 → <code>find_user_by_id(A)</code> 返回 <code>users[i]</code>，而 <code>users[i]</code> 现在是<strong>排在 A 后面一位的另一个人</strong> → 会话/权限判定/积分扣减落到错误对象上（越权读取他人数据、扣错人的积分）；</li>
+<li>若超出范围 → 返回 <code>nullptr</code> → 该用户被当作“用户不存在”（<code>routes_public.cpp:195-199</code>、<code>routes_student.cpp:29-33</code>），会话仍然有效却 404。</li>
+</ul>
+<p><code>init_indexes()</code>（<code>models.cpp:172-186</code>）会在 <code>main.cpp:303</code> 与 <code>routes_admin.cpp:1667</code> 被调用，但它<strong>不清空</strong>三张 map（只有 <code>role_id_map</code> 等被整体覆盖），且会为<strong>已删除用户</strong>重新写入一个指向他人下标的值 → 错位被固化。</p>
+<p><strong>影响面</strong>：<code>/api/auth/me</code>、<code>/api/user/info</code>、<code>/api/student/info</code>、<code>/api/mall/redeem</code>（扣分对象错误）、教师/管理员用户列表操作、<code>update_user_points_in_db</code> 的入参。触发条件仅为“管理员或教师删除过任意一个用户”——这是常规运营动作。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li><strong>不要用下标做索引</strong>：索引表改为 <code>unordered_map&lt;string, string&gt;</code>（id → 稳定键）或直接“遍历 + 比较”（用户量在此规模下可接受），彻底消灭下标耦合；或</li>
+<li>索引表改存 <code>User*</code>/稳定 ID，并改用 <code>std::deque</code>/<code>list</code>/<code>vector&lt;unique_ptr&gt;</code> 使元素地址不随删除变化；或</li>
+<li><code>erase</code> 后调用一个<strong>全量重建</strong>函数（先 <code>clear()</code> 三张 map 再重建），且所有 erase 路径（<code>routes_teacher.cpp:259</code>、<code>routes_admin.cpp:826</code>）都必须调用；<code>init_indexes()</code> 内部加 <code>user_id_map.clear(); user_username_map.clear();</code>。</li>
+<li>加回归测试：删除中间用户后，断言每个存活的 id/username 都能解析到自身。</li>
+</ol>
+<p><strong>修复成本</strong>：S（改成清空重建）～ M（改为稳定键/锁内访问，与 B5 一并做）。</p>
+<hr>
+<h3 id="h-b7-单条共享连接上的显式事务污染-回滚其他线程的写入-high">B7 —— 单条共享连接上的显式事务污染/回滚其他线程的写入【high】</h3>
+<p><strong>位置</strong>：<code>routes_admin.cpp:1453,1665,1686</code>；连接模型 <code>sqlite_wrapper.h:14-32,208-210</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1451-1453
+            int error_count = 0;
+
+            db.execute("BEGIN TRANSACTION");</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1663-1667
+            db.execute("COMMIT");
+
+            init_indexes();</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1679-1687
+        } catch (json::parse_error&amp; e) {
+            response = {{"code", 400}, {"msg", "数据格式错误"}};
+        } catch (const exception&amp; e) {
+            Logger::error(string("导入失败: ") + e.what());
+            response = {{"code", 500}, {"msg", "导入失败"}};
+            db.execute("ROLLBACK");
+        }</code></pre>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:14-17,208-210
+class SqliteDb {
+public:
+    SqliteDb() : db_(nullptr) {}
+...
+private:
+    sqlite3* db_;      // ← 全进程唯一连接，8 线程共享</code></pre>
+<p><strong>问题</strong>：SQLite 的事务是<strong>连接级</strong>的。此处 <code>BEGIN TRANSACTION</code> 打在全局唯一连接上，于是：</p>
+<ol>
+<li><strong>其他线程的写入被吞进同一事务</strong>：导入期间任何并发请求（教师加积分 <code>routes_teacher.cpp:343</code>、学生兑换 <code>routes_public.cpp:383</code>、会话写入 <code>auth.h:216</code>）都落在同一个事务里。若导入路径走到 <code>ROLLBACK</code>（<code>routes_admin.cpp:1686</code>），这些<strong>已经向客户端返回 200 成功的写入会被一并回滚</strong> → 用户看到“成功”，数据却消失（静默数据丢失）。</li>
+<li><strong><code>BEGIN</code> 失败被忽略</strong>：若此刻另一线程已开事务（或本函数被并发调用两次），<code>BEGIN TRANSACTION</code> 返回 <code>SQLITE_ERROR: cannot start a transaction within a transaction</code>，而 <code>db.execute()</code> 的返回值<strong>未被检查</strong>（<code>routes_admin.cpp:1453</code>）→ 导入的写入静默挂在<strong>别人的</strong>事务里。</li>
+<li><strong><code>ROLLBACK</code> 的 catch 不完整</strong>：只有 <code>catch (const exception&amp;)</code> 分支回滚；<code>json::parse_error</code> 分支不回滚（虽然该异常在 <code>BEGIN</code> 之前抛出，但模式本身脆弱），任何非 <code>std::exception</code>（如 <code>bad_alloc</code>）或提前 <code>return</code> 都会让事务悬挂，长期持有写锁，后续所有写操作失败。</li>
+<li><code>init_indexes()</code>（<code>routes_admin.cpp:1667</code>）在事务提交后才执行，若中途异常，索引与数据不一致。</li>
+</ol>
+<p><strong>影响面</strong>：<code>POST /api/admin/import</code> 与<strong>所有并发写接口</strong>（<code>/api/teacher/points</code>、<code>/api/mall/redeem</code>、<code>/api/admin/**</code>、<code>/api/parent/student/{id}/messages</code>、会话创建 <code>auth.h:190-217</code>）。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>立刻给 <code>SqliteDb</code> 加一把<strong>递归/全局写锁</strong>，并规定“<code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code> 必须与锁同生命周期”，即提供 <code>db.with_transaction([&amp;]{ ... })</code> RAII 封装（构造时 <code>BEGIN IMMEDIATE</code>，析构时按异常状态 <code>COMMIT</code>/<code>ROLLBACK</code>），从 API 上禁止手工 <code>execute("BEGIN")</code>。</li>
+<li>更正确的做法：改为<strong>每线程一条连接</strong>（<code>thread_local SqliteDb</code>）或一个小型连接池，让事务天然按线程隔离；此时 <code>busy_timeout(5000)</code> + WAL 才真正发挥作用（配合 <code>BEGIN IMMEDIATE</code> 减少写写冲突）。</li>
+<li><code>db.execute()</code> 在事务语句上的返回值必须检查并在失败时立即返回错误响应。</li>
+<li>导入前先做<strong>全量校验</strong>（如 <code>import_data</code> 结构、role_id 白名单），再开事务，减少回滚概率。</li>
+</ol>
+<p><strong>修复成本</strong>：M（封装 + 改造 3 处调用）～ L（连接池化）。</p>
+<hr>
+<h3 id="h-b8-兑换流程双花-超卖-且-execute_bind-无法识别-0-行受影响-high">B8 —— 兑换流程双花/超卖，且 <code>execute_bind</code> 无法识别 0 行受影响【high】</h3>
+<p><strong>位置</strong>：<code>routes_public.cpp:325,343-352,360-385</code>；封装 <code>sqlite_wrapper.h:127-148</code>；同型问题 <code>routes_admin.cpp:245-253</code>、<code>routes_teacher.cpp:796-802,825-830,1110-1115</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:360-373
+            if (user-&gt;points &lt; cost) {
+                response = {{"code", 400}, {"msg", "积分不足！"}};
+                ...
+            }
+            bool stock_ok = true;
+            if (stock == 0) {
+                stock_ok = false;
+            } else if (stock &gt; 0) {
+                db.execute_bind(
+                    "UPDATE mall_items SET stock = stock - 1 WHERE id = ? AND stock &gt; 0",
+                    {SqliteDb::Bind((long long)item_id)});      // ← 返回值未检查
+            }</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:381-385
+            user-&gt;points -= cost;                                  // ← 内存读-改-写
+            update_user_points_in_db(user-&gt;id, user-&gt;points);       // ← 绝对值覆盖
+            db.execute_bind(
+                "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
+                {...});</code></pre>
+<pre class="code" data-lang="cpp"><code>// models.cpp:93-97
+bool update_user_points_in_db(const string&amp; user_id, int points) {
+    return db.execute_bind(
+        "UPDATE users SET points = ? WHERE id = ?",           // ← 绝对赋值，非 points = points - ?
+        {SqliteDb::Bind((long long)points), SqliteDb::Bind(user_id)});
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:145-147
+        rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        return rc == SQLITE_DONE;      // ← 0 行受影响同样返回 SQLITE_DONE → true</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>双花（同一学生）</strong>：<code>user-&gt;points</code> 是内存值，<code>if (user-&gt;points &lt; cost)</code> 与 <code>user-&gt;points -= cost</code> 之间无锁（见 B5）。两个并发兑换各自读到 <code>points=100</code>、<code>cost=80</code>，都判定“足够”，各自算出 20 并写回 → 最终 20，但<strong>扣了 80 得到 2 件商品</strong>。因为 <code>update_user_points_in_db</code> 用绝对值覆盖（<code>models.cpp:95</code>），第二次写入直接吞掉第一次的语义（经典 lost update）。</li>
+<li><strong>超卖（同一商品）</strong>：<code>stock</code> 先被查出（<code>routes_public.cpp:351-352</code>）再判断（<code>367-373</code>）。两个线程同时读到 <code>stock=0</code>…注意：读到 <code>stock=1</code> 时两者都通过检查，随后 <code>UPDATE ... WHERE stock &gt; 0</code> 只有一条命中；但<strong>该语句 0 行受影响时 <code>execute_bind</code> 依然返回 true</strong>（<code>sqlite_wrapper.h:147</code>），返回值也没被检查（<code>routes_public.cpp:370</code>）→ 第二个请求继续插入兑换记录并返回“兑换成功” → 库存 0 却卖出 2 件。</li>
+<li><strong>系统性 404 分支失效</strong>：同类“用返回布尔判断是否存在”的写法在多个接口存在，全部恒为 true，例如</li>
+</ol>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:245-253（删除不存在的商品也返回 200）
+            bool ok = db.execute_bind("DELETE FROM mall_items WHERE id = ?", {...});
+            if (ok) { response = {{"code", 200}, {"msg", "商品删除成功"}}; }
+            else { response = {{"code", 404}, {"msg", "商品不存在"}}; }</code></pre>
+<p><code>routes_teacher.cpp:796-802</code>（修改评价）、<code>825-830</code>（删除评价）、<code>1110-1115</code>（标记已读）同型：<code>WHERE id=?</code> 未命中时仍返回 200。</p>
+<p><strong>影响面</strong>：<code>/api/mall/redeem</code>（资金/积分正确性）、<code>/api/admin/mall/{id}</code>（DELETE/PUT）、<code>/api/teacher/evaluation/{id}</code>、<code>/api/teacher/parent-messages/{id}/read</code>。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li><code>execute_bind</code> 增加“受影响行数”返回值（如 <code>int execute_bind_rows(...)</code> = <code>sqlite3_changes(db_)</code>，或返回 <code>std::pair&lt;bool,int&gt;</code>），<strong>不要</strong>让调用方用布尔猜存在性；同时把连接级 <code>sqlite3_changes</code> 的读取放在同一把锁内（否则又落回 B5 的竞态）。</li>
+<li>兑换改为<strong>单条原子 SQL</strong>：</li>
+</ol>
+<pre class="code" data-lang="sql"><code>   UPDATE users SET points = points - ? WHERE id = ? AND points &gt;= ?;
+   -- 受影响行数 == 1 才继续；否则返回 400 积分不足
+   UPDATE mall_items SET stock = stock - 1 WHERE id = ? AND (stock &gt; 0 OR stock = -1);
+   -- 受影响行数 == 1 才插入兑换记录；否则回滚并返回 400 库存不足</code></pre>
+<p>并整体放进 <code>BEGIN IMMEDIATE ... COMMIT</code>（见 B7 的 RAII 封装）。</p>
+<ol>
+<li>业务不变量加数据库约束/守卫：<code>CHECK (points &gt;= 0)</code>、<code>CHECK (stock &gt;= -1)</code>（<code>main.cpp:113-146</code> 建表处补充），让超卖在 SQLite 层被拒绝而不是被忽略。</li>
+<li>对“0 行受影响”统一规范：所有 <code>WHERE id=?</code> 的写接口必须以行数判断 404。</li>
+</ol>
+<p><strong>修复成本</strong>：S（兑换改原子 SQL）～ M（全站统一行数语义 + 约束补齐）。</p>
+<hr>
+<h3 id="h-b9-教师写接口缺少班级作用域-任意教师可操作任意学生-high">B9 —— 教师写接口缺少班级作用域：任意教师可操作任意学生【high】</h3>
+<p><strong>位置</strong>：对比 <code>routes_teacher.cpp:60-96</code>（读接口有作用域）与 <code>193-201,251-253,298-300,487-489,118-142</code>（写接口无作用域）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:76-87（读取学生列表：用绑定班级过滤）
+        // 学生列表：仅返回 className 在绑定班级集合中的学生
+        json students = json::array();
+        for (const auto&amp; user : users) {
+            if (user.role_id == 3) { // 学生角色
+                // 若已获取绑定班级，则过滤；否则保留旧行为
+                if (!bound_class_names.empty()) {
+                    bool in_bound = false;</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:193-201（编辑学生：全校范围内查找，无班级过滤）
+            auto student_it = find_if(users.begin(), users.end(), [&amp;](const User&amp; u) {
+                return u.id == student_id &amp;&amp; u.role_id == 3;
+            });
+            if (student_it == users.end()) { ... }
+            student_it-&gt;name = name;
+            student_it-&gt;className = className;    // ← 还能把别班学生改到自己班</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:297-300（积分操作：同样无班级过滤）
+            auto it = find_if(users.begin(), users.end(), [&amp;](const User&amp; u) {
+                return u.id == student_id &amp;&amp; u.role_id == 3;
+            });</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:118-142（新增学生：className 完全来自请求体）
+            string className = req_json.value("className", "");
+            ...
+            User new_user = { new_id, studentId, hash_password(default_password),
+                              3, name, className, points, studentId };</code></pre>
+<p><strong>问题</strong>：鉴权只做到<strong>角色级</strong>（<code>check_permission_middleware(req,res,"student:manage")</code>，<code>main.cpp:246</code> 把该权限授予 role=2 的全体教师），而<strong>对象级授权（ownership）只在一部分读接口实现</strong>（<code>routes_teacher.cpp:64-74</code> 通过 <code>teacher_classes</code> 求班级集合）。所有变更类接口都没有这层过滤，因此任何教师账号（含默认 <code>teacher/teacher123</code>，以及管理员新建的每个教师）可以：</p>
+<ol>
+<li><code>PUT /api/teacher/students/{id}</code> 修改<strong>任意班级</strong>学生的姓名/班级，并把 <code>points</code> 直接设成任意值（<code>routes_teacher.cpp:203-212</code>，<code>points</code> 参数字段直接写库）；</li>
+<li><code>DELETE /api/teacher/students</code> 删除任意学生（<code>routes_teacher.cpp:251-263</code>）；</li>
+<li><code>POST /api/teacher/points</code> 给任意学生加减积分（<code>routes_teacher.cpp:298-343</code>）；</li>
+<li><code>POST /api/teacher/evaluation</code> 给任意学生打分（<code>routes_teacher.cpp:487-489</code>）；</li>
+<li><code>GET /api/teacher/students</code> 在教师<strong>未绑定任何班级</strong>时返回全校学生（<code>routes_teacher.cpp:81</code> 的 <code>if (!bound_class_names.empty())</code> 把过滤整体跳过，注释亦自承“否则保留旧行为”）。</li>
+</ol>
+<p><strong>影响面</strong>：所有 <code>/api/teacher/**</code> 写接口 + 学生列表读接口；影响面覆盖全校学生数据完整性。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>抽出统一的授权原语并<strong>在每个教师接口入口调用</strong>：</li>
+</ol>
+<pre class="code" data-lang="cpp"><code>   // 返回 true 表示 target_student_id 属于该教师绑定班级
+   bool teacher_owns_student(const std::string&amp; teacher_id, const std::string&amp; student_id);
+   // 或按班级：bool teacher_owns_class(const std::string&amp; teacher_id, const std::string&amp; class_name);</code></pre>
+<p>实现用一条 SQL：<code>SELECT 1 FROM users u JOIN teacher_classes tc ON tc.class_id = c.id JOIN classes c ON c.name = u.className WHERE u.id=? AND tc.teacher_id=? LIMIT 1</code>。</p>
+<ol>
+<li>对 <code>PUT/DELETE /api/teacher/students/{id}</code>、<code>POST /api/teacher/points</code>、<code>POST /api/teacher/evaluation</code> 补上该检查，未命中返回 403；新增学生时校验 <code>className ∈ 绑定班级</code>。</li>
+<li>修掉 <code>!bound_class_names.empty()</code> 的兜底：未绑定班级的教师应返回空列表（或 403），不能退化为“可以看到全校”。</li>
+<li>把“读接口有作用域、写接口没有”的不对称写进代码审查清单，避免回归。</li>
+</ol>
+<p><strong>修复成本</strong>：M（1 个原语 + 5~6 处调用 + 测试）。</p>
+<hr>
+<h3 id="h-b10-未捕获异常被-httplib-转成-500-并把异常原文写进响应头-high">B10 —— 未捕获异常被 httplib 转成 500 并把异常原文写进响应头【high】</h3>
+<p><strong>位置</strong>：<code>httplib.h:3561-3582</code>（框架行为）+ <code>httplib.h:3666-3672</code>（响应写出）；触发点 <code>routes_public.cpp:88,174,392</code>、<code>routes_teacher.cpp:161,368,529</code>、<code>routes_admin.cpp:183,316,1785,1832</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// httplib.h:3561-3581（本仓库 vendored 版本）
+inline bool Server::dispatch_request(Request &amp;req, Response &amp;res,
+                                     Handlers &amp;handlers) {
+  try {
+    for (const auto &amp;x : handlers) {
+      ...
+        handler(req, res);
+        return true;
+      }
+    }
+  } catch (const std::exception &amp;ex) {
+    res.status = 500;
+    res.set_header("EXCEPTION_WHAT", ex.what());     // ← 异常原文进入响应头
+  } catch (...) {
+    res.status = 500;
+    res.set_header("EXCEPTION_WHAT", "UNKNOWN");
+  }
+  return false;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:17-24（只捕 json::parse_error，但用了强类型 value()）
+        try {
+            auto req_json = json::parse(req.body);
+            string username = req_json.value("username", "");
+            ...
+        } catch (json::parse_error&amp; e) {              // 88 行：type_error 不在捕获范围
+            response = {{"code", 400}, {"msg", "请求数据格式错误"}};
+        }</code></pre>
+<pre class="code" data-lang="cpp"><code>// json.hpp:22491-22501（value() 在类型不匹配时抛异常，而不是返回默认值）
+    ValueType value(const typename object_t::key_type&amp; key, const ValueType&amp; default_value) const
+    {
+        if (JSON_HEDLEY_LIKELY(is_object()))
+        {
+            const auto it = find(key);
+            if (it != end())
+            {
+                return it-&gt;template get&lt;ValueType&gt;();     // ← 类型不符 → type_error.302
+            }</code></pre>
+<p><strong>问题</strong>：这些 handler 只捕获 <code>json::parse_error</code>，但 <code>req_json.value("username", "")</code> 在键存在而<strong>类型不符</strong>时抛 <code>json::type_error</code>（json.hpp:22491-22501 已确认），不会被捕获。异常冒到 <code>dispatch_request</code> → 框架设 <code>status=500</code> 并把 <code>ex.what()</code> 写入 <strong><code>EXCEPTION_WHAT</code> 响应头</strong>（<code>httplib.h:3576</code>），空 body 返回（<code>httplib.h:3666-3672</code> 走 <code>write_response</code>）。</p>
+<p>可复现路径（无需认证）：<code>POST /api/auth/login</code>，body <code>{"username":123,"password":"x"}</code> → 客户端收到 <code>HTTP/1.1 500</code> + 响应头 <code>EXCEPTION_WHAT: [json.exception.type_error.302] type must be string, but is number</code>。</p>
+<p>危害：</p>
+<ol>
+<li><strong>信息泄露</strong>：异常原文可能包含 nlohmann 的类型/键名细节，或 SQLite/内部路径信息（各 handler 里未捕获的 <code>db</code> 层异常同样会走到这里）。项目里多处注释自称“安全修复 V15：不向客户端回显内部异常细节”，但这条通道绕过了所有手工 catch。</li>
+<li><strong>接口契约破坏</strong>：前端按 <code>res.json()</code> 解析统一 <code>{code,msg,data}</code>，遇到空 body 的 500 会抛 <code>SyntaxError</code>，表现为“网络错误”，掩盖真实原因；同时 HTTP 500 与业务码体系（B17）进一步错配。</li>
+<li>触发面广：<code>routes_public.cpp:88,174,392</code>、<code>routes_teacher.cpp:161,368,529</code>、<code>routes_admin.cpp:183,316,1785,1832</code> 等<strong>仅捕获 json::parse_error 的 handler</strong> 全部受影响（grep 出的完整清单见 §1.3 命令）。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>每个 handler 的捕获列表补齐 <code>catch (const std::exception&amp; e)</code>（并 <code>catch (...)</code>），统一返回 <code>{"code":500,"msg":"服务器内部错误"}</code>，细节只写 <code>Logger::error</code>。可抽一个宏/包装器 <code>handle(fn)</code> 或把 body 解析统一为 <code>parse_body(req, res, out)</code> 帮助函数，一次修完。</li>
+<li>或者在 <code>main.cpp</code> 给 httplib 注册全局异常处理器（本仓库 httplib 版本没有 <code>set_exception_handler</code>，<code>grep</code> 确认只有 <code>dispatch_request</code> 的 catch），因此更可行的是<strong>在路由层统一包装</strong>：<code>register_*_routes</code> 里用一层 wrapper lambda 把 <code>handler</code> 包住（<code>try { h(req,res); } catch (...) { 500 + 日志 }</code>）。</li>
+<li>无论选哪种，都要求：<strong>任何响应不得包含异常原文</strong>。可在 CI 里加一条冒烟用例断言响应头中不存在 <code>EXCEPTION_WHAT</code>。</li>
+<li>升级 vendored httplib 到带 <code>set_exception_handler</code> 的版本，并在启动时注册脱敏 handler。</li>
+</ol>
+<p><strong>修复成本</strong>：S（加统一 wrapper）～ M（逐 handler 规范化 + 冒烟测试）。</p>
+<hr>
+<h3 id="h-b11-会话-sql-仍用-snprintf-拼接-escapestring-非当前可利用-但属维护陷阱与静默失败-me">B11 —— 会话 SQL 仍用 <code>snprintf</code> 拼接 + <code>escapeString</code>：非当前可利用，但属维护陷阱与静默失败【medium】</h3>
+<p><strong>位置</strong>：<code>auth.h:242-246</code>、<code>261-266</code>、<code>270-274</code>；对照同文件已参数化的 <code>auth.h:196-216</code>（<code>execute_bind</code>）与 <code>223-232</code>（<code>query_bind</code>）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// auth.h:240-247
+inline bool get_session_info(const std::string&amp; session_id, std::string&amp; user_id, int&amp; role_id,
+                             bool&amp; is_parent, std::string&amp; student_id) {
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+        "SELECT user_id, role_id, is_parent, student_id FROM sessions WHERE session_id = '%s' AND expires_at &gt; %ld",
+        db.escapeString(session_id).c_str(), static_cast&lt;long&gt;(time(nullptr)));
+    auto result = db.query(sql);
+    if (result.empty()) return false;</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:261-267
+inline bool delete_session(const std::string&amp; session_id) {
+    if (session_id.empty()) return false;
+    char sql[256];
+    snprintf(sql, sizeof(sql), "DELETE FROM sessions WHERE session_id = '%s'",
+             db.escapeString(session_id).c_str());
+    return db.execute(sql);
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:270-275
+inline void cleanup_expired_sessions() {
+    char sql[128];
+    snprintf(sql, sizeof(sql), "DELETE FROM sessions WHERE expires_at &lt; %ld",
+             static_cast&lt;long&gt;(time(nullptr)));
+    db.execute(sql);
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:199-203（对照：同文件的登录路径已经参数化，并有明确注释）
+    // 会话 SQL 使用参数化查询：session_id / user_id 来自 Cookie，属用户可控输入，
+    // 不应拼接进 SQL（沿用 sqlite_wrapper.h 中 execute_bind 的约定）
+    const char* sql =
+        "INSERT OR REPLACE INTO sessions (session_id, user_id, role_id, created_at, expires_at, is_parent, student_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)";</code></pre>
+<p><strong>问题</strong>（对队长线索 1 的核实结论：<strong>不构成本次可直接利用的注入，但确实是真实隐患</strong>，理由必须说清）：</p>
+<ol>
+<li><strong>为什么现在无法注入</strong>：<code>session_id</code> 被单引号包裹且经过 <code>db.escapeString()</code>（<code>sqlite_wrapper.h:195-206</code>）把 <code>'</code> 翻倍为 <code>''</code>，在 SQLite 中这是正确的字符串字面量转义；<code>static_cast&lt;long&gt;</code> 与配置整数不是用户输入。因此现有三个调用点<strong>不可注入</strong>。</li>
+<li><strong>为什么仍是隐患</strong>：</li>
+</ol>
+<p>- <strong>模板污染</strong>：同一文件内 190-237 行已迁移到 <code>execute_bind/query_bind</code>（注释还写着“不应拼接进 SQL”），242-275 行却保留旧模式。这是最容易被后续开发者复制粘贴的“范例”，而 <code>escapeString</code> 是<strong>可选的denylist 兜底</strong>（<code>sqlite_wrapper.h:194</code> 注释自称“新代码请用 execute_bind”），任何人漏调一次就是完整 SQLi。风险不是“当前可被利用”，而是“下一次修改极易变成可利用”。</p>
+<p>- <strong>静默截断</strong>：<code>snprintf</code> 返回值未检查，超长 <code>session_id</code>（攻击者可用 Cookie 发任意长度字符串）会被截断成非法 SQL → <code>sqlite3_prepare_v2</code> 失败 → <code>query()</code> 返回<strong>空数组</strong>（<code>sqlite_wrapper.h:58-62</code>）→ <code>get_session_info</code> 返回 <code>false</code>，被上层当作“权限不足/未登录”（<code>auth.h:347</code>）而不是“内部错误”。<code>delete_session</code> 同样静默变成 no-op（登出失效但返回 200）。缓冲区尺寸 1024/256/128 与字段长度之间没有任何断言或校验。</p>
+<p>- <strong>类型细节</strong>：<code>static_cast&lt;long&gt;</code> 在 Windows 上是 32 位，<code>expires_at</code> 由 <code>create_session</code> 以 <code>long long</code> 写入（<code>auth.h:208-209</code>），2038 年后比较会失真（低危，顺带修正）。</p>
+<ol>
+<li><strong>建议改法</strong>：</li>
+</ol>
+<pre class="code" data-lang="cpp"><code>   // get_session_info
+   auto result = db.query_bind(
+       "SELECT user_id, role_id, is_parent, student_id FROM sessions WHERE session_id = ? AND expires_at &gt; ?",
+       {SqliteDb::Bind(session_id), SqliteDb::Bind(static_cast&lt;long long&gt;(time(nullptr)))});
+   // delete_session
+   return db.execute_bind("DELETE FROM sessions WHERE session_id = ?", {SqliteDb::Bind(session_id)});
+   // cleanup_expired_sessions
+   db.execute_bind("DELETE FROM sessions WHERE expires_at &lt; ?", {SqliteDb::Bind(static_cast&lt;long long&gt;(time(nullptr)))});</code></pre>
+<ol>
+<li>顺手删除 <code>escapeString()</code> 这一公开 API（或降级为 <code>private</code>），并在 code review / clang-tidy 中禁止在自研代码里出现 <code>snprintf</code>+SQL 的组合（可加 CI 正则：<code>snprintf\([^)]*sql</code> → 报错）。</li>
+<li>在会话入口对 <code>session_id</code> 做格式校验（长度必须 = 64 且 <code>[0-9a-f]</code>，与 <code>generate_session_id()</code> 的产出对齐），一举免疫截断与未来拼接风险。</li>
+</ol>
+<p><strong>影响面</strong>：<code>get_session_info</code>（被 <code>auth.h:347,392</code> 与 <code>routes_public.cpp:205</code> 调用）、<code>delete_session</code>（<code>routes_public.cpp:102</code>、<code>routes_parent.cpp:141</code>）、<code>cleanup_expired_sessions</code>（<code>routes_public.cpp:62</code>、<code>routes_parent.cpp:80</code>）。</p>
+<p><strong>修复成本</strong>：S（3 处替换 + 1 处校验）。</p>
+<hr>
+<h3 id="h-b12-query-query_bind-把-prepare-失败伪装成-空结果-medium">B12 —— <code>query()/query_bind()</code> 把 prepare 失败伪装成“空结果”【medium】</h3>
+<p><strong>位置</strong>：<code>sqlite_wrapper.h:53-62</code>、<code>151-159</code>；具体受害调用点 <code>auth.h:246</code>、<code>routes_parent.cpp:25-30</code>、<code>routes_teacher.cpp:701-714</code>、<code>routes_public.cpp:343-350</code>、<code>routes_admin.cpp:1708-1711</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:53-62
+    json query(const std::string&amp; sql) {
+        json result = json::array();
+        if (!db_) return result;
+
+        sqlite3_stmt* stmt;
+        int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &amp;stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            std::cerr &lt;&lt; "查询失败: " &lt;&lt; sqlite3_errmsg(db_) &lt;&lt; std::endl;
+            return result;                 // ← 与“查到 0 行”返回的对象完全相同
+        }</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:246-247（DB 错误 → 被当成“会话无效”）
+    auto result = db.query(sql);
+    if (result.empty()) return false;</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_parent.cpp:25-30（DB 错误 → 被当成“无权访问”，返回 403）
+static bool check_same_parent(const std::string&amp; parent_id, const std::string&amp; target_student_id) {
+    auto result = db.query_bind(
+        "SELECT 1 FROM parent_students WHERE parent_id = ? AND student_id = ? LIMIT 1",
+        {SqliteDb::Bind(parent_id), SqliteDb::Bind(target_student_id)});
+    return !result.empty();
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:701-714（DB 错误 → 图表静默显示 0，HTTP 仍 200）
+        json excellentResult = db.query("SELECT COUNT(*) as count FROM evaluations WHERE score &gt;= 90");
+        int excellentCount = excellentResult.empty() ? 0 : excellentResult[0].value("count", 0);</code></pre>
+<p><strong>问题</strong>：API 契约把“执行失败”和“结果为空”压成同一个值（<code>json::array()</code>），调用方无法区分，于是<strong>系统级错误被降级为业务语义</strong>。具体后果清单：</p>
+<ul>
+<li><code>auth.h:246</code> → SQL 失败被报告为“会话无效/权限不足”（401/403），掩盖真实故障；</li>
+<li><code>routes_parent.cpp:25-30</code> → 数据库故障被报告为“无权访问该学生信息”（403），误导排查方向，且家长正常请求被拒；</li>
+<li><code>routes_public.cpp:343-350</code> → 商品查询失败被报告为“商品不存在或已下架”（404）；</li>
+<li><code>routes_teacher.cpp:584-591,701-714</code>、<code>routes_admin.cpp:1708-1711,375-376</code> → 统计数字静默变 0 且返回 200，前端展示错误数据（无任何告警）；</li>
+<li>反向案例：<code>routes_admin.cpp:341-347</code> 依赖 <code>is_null()</code> 判成功，结果恒为“失败”（见 B13）。</li>
+</ul>
+<p>由于 <code>query()/query_bind()</code> 内部把错误信息只写到 <code>std::cerr</code>（见 B29），线上几乎不可能发现。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>让 <code>query/query_bind</code> 返回携带状态的结构，例如 <code>struct QueryResult { bool ok; std::string error; json rows; }</code>，或在失败时<strong>抛出</strong> <code>std::runtime_error</code>（配合 B10 的统一 wrapper 转成 500），或返回 <code>std::optional&lt;json&gt;</code> 并把错误码/消息通过 <code>out</code> 参数抛出；</li>
+<li>调用方一律写 <code>if (!res.ok) return internal_error(res);</code>，禁止再把 <code>empty()</code> 当错误判据；</li>
+<li>保留 <code>rows().empty()</code> 作为“无数据”的唯一含义，语义分离；</li>
+<li>在 <code>db</code> 层失败时通过 <code>Logger::error</code> 落地日志（含 SQL 与 <code>sqlite3_errmsg</code>），并加计数器便于监控。</li>
+</ol>
+<p><strong>修复成本</strong>：M（封装签名 + 全量调用点约 60 处的语义调整，可分文件推进）。</p>
+<hr>
+<h3 id="h-b13-备份接口判据写错-成功也返回-备份失败-medium">B13 —— 备份接口判据写错：成功也返回“备份失败”【medium】</h3>
+<p><strong>位置</strong>：<code>routes_admin.cpp:335-349</code>；对照 <code>routes_admin.cpp:282-283</code>、<code>376</code>（同文件用 <code>empty()</code> 判空）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:335-347
+        string backup_path = "campus_system_backup_" + get_current_time();
+        for (auto&amp; c : backup_path) {
+            if (c == ' ' || c == ':') c = '_';
+        }
+        backup_path += ".db";
+
+        json backup_result = db.query("VACUUM INTO '" + backup_path + "'");
+        if (backup_result.is_null()) {
+            response = {{"code", 200}, {"msg", "备份成功"}, {"data", {{"path", backup_path}}}};
+            Logger::info("数据库备份成功: " + backup_path);
+        } else {
+            response = {{"code", 500}, {"msg", "备份失败"}};
+        }</code></pre>
+<p><strong>问题</strong>（对队长线索 6 的核实结论：<strong>路径用户不可控，但该接口存在另一个确定的逻辑错误</strong>）：</p>
+<ol>
+<li><strong>路径来源不可控</strong>：<code>backup_path</code> 完全由 <code>get_current_time()</code>（<code>sha256.h:191-197</code>，格式 <code>%Y-%m-%d %H:%M</code>）+ 固定前缀 + <code>':'/' '→'_'</code> 替换生成，<strong>没有任何请求参数参与</strong>。因此不存在“用户可控路径注入/写入任意位置”的问题，线索 6 的注入前提<strong>不成立</strong>。路径为相对 CWD 的 <code>campus_system_backup_YYYY-MM-DD_HH_MM.db</code>。另注：静态资源只从 <code>frontend/dist</code> 读取（<code>routes_static.cpp:10,51</code>），该备份文件不在服务目录内，不会被 HTTP 下载。</li>
+<li><strong>判据必然走 else 分支</strong>：<code>VACUUM INTO</code> 不产生结果行，<code>db.query()</code> 成功时返回 <code>json::array()</code>（<code>sqlite_wrapper.h:54,88-91</code>）；<code>json::array().is_null()</code> 为 <strong>false</strong>。于是无论备份成功还是失败，都会返回 <code>{"code":500,"msg":"备份失败"}</code>（HTTP 200，见 B17）。<strong>功能实际可用但被恒报为失败</strong>，且成功路径的日志（<code>routes_admin.cpp:344</code>）永不执行，运维无法确认备份状态。</li>
+<li>附加缺陷：<code>VACUUM INTO</code> 在目标文件已存在时会报错，而路径只精确到分钟 → 同分钟内二次备份必然失败；备份文件无轮转/清理（<code>backupConfig.retentionDays: 7</code> 只是 <code>routes_admin.cpp:1240-1243</code> 里的写死展示值，无实现）；返回值未检查 <code>backup_result</code> 之外的任何东西（也未校验目标文件真的生成）。</li>
+<li>若仍保留字符串拼接，路径虽不可控但风格上仍是“拼接 SQL”，建议一并参数化：<code>db.execute_bind("VACUUM INTO ?", {SqliteDb::Bind(backup_path)})</code>（SQLite 支持 <code>VACUUM INTO</code> 带表达式参数）。</li>
+</ol>
+<p><strong>影响面</strong>：<code>POST /api/admin/system/backup</code>（管理员）。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>用 <code>db.execute_bind("VACUUM INTO ?", {SqliteDb::Bind(backup_path)})</code> 并<strong>检查返回值</strong>：</li>
+</ol>
+<pre class="code" data-lang="cpp"><code>   if (db.execute_bind("VACUUM INTO ?", {SqliteDb::Bind(backup_path)}) &amp;&amp; file_exists(backup_path)) { 200 } else { 500 + Logger::error }</code></pre>
+<ol>
+<li>路径加入秒级或唯一时间戳（<code>%Y-%m-%d_%H-%M-%S</code>）避免同分钟冲突；按 <code>retentionDays</code> 实现清理；把备份放在 <code>backups/</code> 子目录。</li>
+<li>顺手修掉 <code>routes_admin.cpp:1229-1244</code> 的假配置（见 B19），让 <code>/api/admin/system/config</code> 返回真实 <code>g_config</code> 值。</li>
+</ol>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b14-未限制请求体大小与读取超时-内存-慢速连接-dos-medium">B14 —— 未限制请求体大小与读取超时：内存/慢速连接 DoS【medium】</h3>
+<p><strong>位置</strong>：<code>main.cpp:286-306</code>（无任何 Server 参数设置）；框架默认 <code>httplib.h:44,2955,3077-3079</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// httplib.h:44
+#define CPPHTTPLIB_PAYLOAD_MAX_LENGTH ((std::numeric_limits&lt;size_t&gt;::max)())</code></pre>
+<pre class="code" data-lang="cpp"><code>// httplib.h:2955,3077-3079
+      payload_max_length_(CPPHTTPLIB_PAYLOAD_MAX_LENGTH), is_running_(false),
+...
+inline void Server::set_payload_max_length(size_t length) {
+  payload_max_length_ = length;
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// main.cpp:285-306（创建 Server 后只设置了 logger 与线程池：295-300 行注册路由，306 行设线程池）
+    httplib::Server svr;
+
+    // 5. 设置请求日志
+    svr.set_logger([](const httplib::Request&amp; req, const httplib::Response&amp; res) {
+        log_request(req);
+        log_response(req.path, res.status);
+    });
+    ...
+    svr.new_task_queue = [&amp;]() { return new httplib::ThreadPool(g_config.thread_count); };</code></pre>
+<p><strong>问题</strong>：全项目 grep 确认<strong>没有</strong>调用 <code>set_payload_max_length</code>、<code>set_read_timeout</code>、<code>set_keep_alive_max_count</code>、<code>set_error_handler</code>（唯一的 Server 级设置为 <code>main.cpp:306</code> 的线程池）。默认上限是 <code>SIZE_MAX</code>，即「无上限」，而 httplib 会把整个 body 读进内存并交给 <code>json::parse</code>/multipart 解析：</p>
+<ol>
+<li>攻击者发送超大 <code>Content-Length</code> body（或慢速发送 + 长连接）→ 8 个 worker 全部阻塞在读取与解析上（无限内存增长），服务整体不可用；</li>
+<li><code>/api/admin/import</code>（<code>routes_admin.cpp:1432</code>）与 CSV 导入（<code>routes_teacher.cpp:857-864</code>，multipart 文件同样全量进内存）是放大点，JSON 解析还会额外占用数倍内存；</li>
+<li>未设读超时 → Slowloris 型连接可长期占用 8 个线程中的若干个。</li>
+</ol>
+<p>注：本机部署（<code>config.h:15</code> 默认 127.0.0.1）降低了外部风险，但只要 <code>host</code> 被改成 <code>0.0.0.0</code>（配置文件可改）即可被远程利用；且未认证接口（<code>/api/auth/login</code>、<code>/api/auth/register</code>）同样受影响。</p>
+<p><strong>建议改法</strong>：</p>
+<pre class="code" data-lang="cpp"><code>svr.set_payload_max_length(2 * 1024 * 1024);   // 按业务上限设定（导入/CSV 另给出更合理的上限）
+svr.set_read_timeout(10, 0);
+svr.set_write_timeout(10, 0);
+svr.set_keep_alive_max_count(100);
+svr.set_idle_interval(0, 100000);              // 视需要</code></pre>
+<p>并在 handler 内对关键字段再做长度上限校验（如 <code>content</code>、<code>csv_data</code>、<code>reason</code>、评价 <code>comment</code>），因为 payload 上限是最后一道闸，不是唯一一道。</p>
+<p><strong>影响面</strong>：全站所有接口。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b15-api-admin-import-静默降级角色且不更新索引-medium">B15 —— <code>/api/admin/import</code> 静默降级角色且不更新索引【medium】</h3>
+<p><strong>位置</strong>：<code>routes_admin.cpp:1464-1505</code>、<code>1667</code>；相关 <code>routes_admin.cpp:612-634</code>（批量导入学生反而有去重与索引更新）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1464-1480（overwrite 分支：role_id 被强制改成 3）
+                    if (existing != users.end()) {
+                        if (mode == "overwrite") {
+                            existing-&gt;username = username;
+                            std::string plain = user_json.value("password", "");
+                            if (!plain.empty()) {
+                                existing-&gt;password_hash = hash_password(plain);
+                            }
+                            // 安全修复 V1：导入时 role_id 仅允许学生；提升角色需在专门接口
+                            int role = user_json.value("role_id", 3);
+                            if (role != 3) role = 3;              // ← 管理员/教师/家长被降级为学生
+                            existing-&gt;role_id = role;</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1484-1502（new 分支：push_back 后未调用 update_user_index）
+                        users.push_back(new_user);
+                        save_user_to_db(new_user);
+                        imported_count++;</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>角色降级（数据破坏）</strong>：<code>/api/admin/export</code>（<code>routes_admin.cpp:1344-1356</code>）导出的用户带有真实 <code>role_id</code>；用这份文件 <code>mode=overwrite</code> 导回时，所有 <code>role_id != 3</code> 的用户（管理员、教师、家长）被<strong>静默改成学生</strong>。导出→导入这一“备份恢复”动作会破坏整个权限体系，且响应只报 <code>{"code":200,"msg":"导入完成"}</code>，无任何提示。管理员也不再有管理员账号。（这是 V1“防提权”修复的过度修正：应“拒绝/跳过”而非“篡改”。）</li>
+<li><strong>导入的新用户不进索引</strong>：新分支 <code>users.push_back()</code>（1501）没有配套 <code>update_user_index(new_user)</code>，而 <code>user_id_map</code>/<code>user_username_map</code> 只在 <code>init_indexes()</code>（1667，导入结束后）与 <code>update_user_index()</code> 中维护——但 <code>init_indexes()</code> 是导入<strong>成功结束时</strong>才调用；此外它不 <code>clear()</code>（见 B6），且<strong>该函数内部一次性重建</strong>确实能让新用户可登录，所以主路径最终可恢复。真正的问题是：若导入因异常走到 <code>catch</code>（<code>routes_admin.cpp:1682-1686</code>）→ <code>init_indexes()</code> 不执行，而事务已 <code>ROLLBACK</code>（DB 侧回滚）却<strong>内存里已 push_back 的用户不会撤销</strong> → 内存与 DB 分叉（用户能登录但 DB 无记录，重启后消失）。</li>
+<li><code>error_count</code> 恒为 0（<code>routes_admin.cpp:1451,1675</code>），从不递增 → 导入报告没有失败计数。</li>
+</ol>
+<p><strong>影响面</strong>：<code>POST /api/admin/import</code>；间接影响全部依赖角色判定的接口。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>角色按白名单处理：<code>role</code> 不在 {1,2,3,4} 或与导入者权限不符时<strong>跳过该用户并计入 failed 列表</strong>，绝不改写为 3；管理员自身角色永远不因导入变化。</li>
+<li>导入改为“先校验全部记录 → 再开事务写入 → 提交后一次性 <code>init_indexes()</code>（先 clear）”；异常路径要同时回滚内存（可用“先在临时容器构造，成功后一次性 swap”）而不是只回滚 DB。</li>
+<li><code>catch</code> 分支补 <code>users</code> 的一致性恢复（或使用 <code>db.execute("ROLLBACK")</code> + 从 DB 重新 <code>load_users_from_db()</code> + <code>init_indexes()</code>）。</li>
+<li><code>error_count</code> 真正累加并进入响应。</li>
+<li>增加 dry-run 模式（<code>"dry_run": true</code>）供管理员预检。</li>
+</ol>
+<p><strong>修复成本</strong>：M。</p>
+<hr>
+<h3 id="h-b16-角色-权限管理只改内存不落库-鉴权与展示各读一处-medium">B16 —— 角色/权限管理只改内存不落库，鉴权与展示各读一处【medium】</h3>
+<p><strong>位置</strong>：<code>routes_admin.cpp:958-988,1014-1054,1056-1090,1092-1126,1128-1167,1169-1218,936-940</code>；鉴权 <code>auth.h:280-303</code>；DB 种子 <code>main.cpp:244-248</code>；内存种子 <code>models.cpp:49-54</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:978-981（新增角色：只 push_back 到内存）
+                int new_id = roles.empty() ? 1 : roles.back().id + 1;
+                roles.push_back(Role{new_id, name, description});
+                response = {{"code", 200}, {"msg", "角色添加成功"}};</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:936-940（角色列表里的权限却从数据库读）
+            json perms_result = db.query_bind(
+                "SELECT p.id, p.name, p.code FROM permissions p "
+                "INNER JOIN role_permissions rp ON p.id = rp.permission_id "
+                "WHERE rp.role_id = ?",
+                {SqliteDb::Bind((long long)role.id)});</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:291-300（鉴权只用内存里的 role_permissions）
+        for (const auto&amp; rp : role_permissions) {
+            if (rp.role_id == role_id) {
+                auto perm_it = find_if(permissions.begin(), permissions.end(), [&amp;](const Permission&amp; p) {
+                    return p.id == rp.permission_id &amp;&amp; p.code == permission_code;
+                });</code></pre>
+<p><strong>问题</strong>：存在<strong>两份互相独立的 RBAC 数据</strong>——DB 里的 <code>roles/permissions/role_permissions</code>（只在 <code>main.cpp:244-248</code> 初始化，且<strong>从未被读回内存</strong>；<code>load_users_from_db()</code> 只加载 <code>users</code>，见 <code>models.cpp:58-74</code>）与内存里的 <code>roles/permissions/role_permissions</code>（<code>models.cpp:25-54</code> 硬编码）。而：</p>
+<ul>
+<li>鉴权只读<strong>内存</strong>（<code>auth.h:280-303</code>）；</li>
+<li><code>/api/admin/roles</code> 的权限列表却读<strong>DB</strong>（<code>routes_admin.cpp:936-940</code>）。</li>
+</ul>
+<p>于是新增/编辑/删除角色与权限（<code>routes_admin.cpp:980,1045,1081,1117,1158,1207</code>）只改内存：<strong>重启即丢失</strong>、<strong>对鉴权无任何影响</strong>、<strong>对 <code>/api/admin/roles</code> 输出也无影响</strong>（它读库）——管理员看到的界面与实际生效的权限完全脱节。同时<strong>没有任何接口可以给角色分配权限</strong>（<code>role_permissions</code> 只能在导入时被追加，<code>routes_admin.cpp:1576</code>），所以“权限管理”功能整体不可用；<code>role_permissions.push_back</code>（1576）同样不落库。</p>
+<p><strong>影响面</strong>：<code>/api/admin/roles*</code>、<code>/api/admin/permissions*</code>、所有依赖 <code>check_permission</code>/<code>check_permission_optimized</code> 的接口。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>明确<strong>单一权威源</strong>：推荐 DB 为权威——启动时把 <code>roles/permissions/role_permissions</code> 从 DB 读入内存（新增 <code>load_rbac_from_db()</code>），所有增删改同时写库并刷新内存（或直接改为每次按需查库 + 缓存失效）。</li>
+<li>补上缺失的“角色-权限分配”接口（<code>POST /api/admin/roles/{id}/permissions</code>），并写库。</li>
+<li>若短期内不实现持久化，则<strong>必须</strong>把接口返回改为“未实现/只读”，并在 UI 上禁用，避免管理员误以为已生效（当前行为属于静默失败）。</li>
+<li>加测试：新增权限后立即用该权限访问对应接口，断言生效；重启后再次断言。</li>
+</ol>
+<p><strong>修复成本</strong>：M。</p>
+<hr>
+<h3 id="h-b17-http-状态码与业务-code-混用-且无统一响应封装-medium">B17 —— HTTP 状态码与业务 code 混用，且无统一响应封装【medium】</h3>
+<p><strong>位置</strong>：全 <code>routes_*.cpp</code>（统计见下表）</p>
+<p><strong>证据</strong>（机械统计，命令见 §1.3）：</p>
+<div class="tw"><table>
+<thead><tr><th>文件</th><th><code>res.status =</code> 次数</th><th><code>{"code",N}</code> 字面量次数</th><th><code>res.set_content</code> 次数</th></tr></thead>
+<tbody>
+<tr><td><code>auth.h</code></td><td>8</td><td>7</td><td>8</td></tr>
+<tr><td><code>routes_public.cpp</code></td><td>1</td><td>32</td><td>29</td></tr>
+<tr><td><code>routes_admin.cpp</code></td><td>1</td><td>90</td><td>46</td></tr>
+<tr><td><code>routes_teacher.cpp</code></td><td>3</td><td>50</td><td>35</td></tr>
+<tr><td><code>routes_student.cpp</code></td><td>1</td><td>8</td><td>11</td></tr>
+<tr><td><code>routes_parent.cpp</code></td><td><strong>0</strong></td><td>30</td><td>20</td></tr>
+<tr><td><code>routes_static.cpp</code></td><td>2</td><td>0</td><td>2</td></tr>
+</tbody></table></div>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:22-25（业务 400，HTTP 仍是 200）
+            if (username.empty() || password.empty()) {
+                response = {{"code", 400}, {"msg", "用户名和密码不能为空"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:30-34（同一个文件里又设置了状态码 —— 风格不一致）
+            if (!login_can_try(lk)) {
+                response = {{"code", 429}, {"msg", "登录尝试过于频繁，请稍后再试"}};
+                res.status = 429;</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:327-331（中间件里则设置了状态码）
+        res.status = 401;
+        json response = {{"code", 401}, {"msg", "未登录"}};</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>217 处</strong>手工拼装的 <code>{"code",N}</code> 响应体（外加大量多行 <code>response = {...}</code> 形式，未计入）只有 <strong>6 处</strong>（routes_*）设置了 HTTP 状态码。即：绝大多数“用户名密码错误”“权限不足”“商品不存在”都以 <strong>HTTP 200</strong> 返回。前端若用 <code>fetch().ok</code>/axios 拦截器按状态码分流，会全部走成功分支；反之中间件返回的 401/403 又会跳进错误分支 —— 两种风格并存，必然出现“有的 401 弹登录框、有的不弹”。</li>
+<li><strong>无统一 helper</strong>：<code>res.set_content(response.dump(), "application/json") + set_cors_headers</code> 这组三行在每个分支重复；<code>routes_admin.cpp</code> 出现了两套风格（<code>json response = {{"code",200},...}</code> 与 <code>json response; response["code"]=200;</code>，如 <code>routes_teacher.cpp:773-776</code>、<code>routes_student.cpp:51-53,86-88,144-146</code>），<code>routes_admin.cpp:519-553</code> 甚至存在“先赋值响应但未 return，最后统一 <code>set_content</code>”与“中途 <code>set_content</code>+return”混用，导致同一个响应体可能被写两次（<code>res.set_content</code> 覆盖，最后一次生效，容易写出“错误信息被后写覆盖”的 bug）。</li>
+<li>响应体字段命名不统一：<code>studentId</code>/<code>student_id</code>/<code>className</code>/<code>class_name</code>/<code>cost</code>/<code>price</code>（<code>routes_student.cpp:187</code> 用 <code>price</code>）等混用，前端需要大量适配。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>抽出统一封装（放 <code>auth.h</code> 或新建 <code>http_util.h</code>）：</li>
+</ol>
+<pre class="code" data-lang="cpp"><code>   inline void send_json(httplib::Response&amp; res, const httplib::Request&amp; req, int status,
+                         int code, const std::string&amp; msg, json data = nullptr) {
+       res.status = status;                       // HTTP 状态与业务码同源
+       set_cors_headers(req, res);
+       json body{{"code", code}, {"msg", msg}};
+       if (!data.is_null()) body["data"] = data;
+       res.set_content(body.dump(), "application/json");
+   }</code></pre>
+<p>约定：业务错误 → 400/401/403/404/409/429；系统错误 → 500；成功 → 200。</p>
+<ol>
+<li>全量替换 217 处字面量为 <code>send_json(...)</code>，消灭“重复 set_content”。</li>
+<li>统一字段命名为下划线或小驼峰之一，并在 <code>docs/</code> 里维护接口契约表；前端与后端共用该契约（可作为后续独立任务）。</li>
+</ol>
+<p><strong>修复成本</strong>：M（机械替换量大但模式单一，可分批按文件推进）。</p>
+<hr>
+<h3 id="h-b18-内存与-db-双份数据源不原子-导致积分-班级-记录不一致-medium">B18 —— 内存与 DB 双份数据源不原子，导致积分/班级/记录不一致【medium】</h3>
+<p><strong>位置</strong>：<code>models.cpp:93-97</code>、<code>routes_public.cpp:381-382</code>、<code>routes_teacher.cpp:203-212,326,331-340</code>、<code>routes_admin.cpp:1877-1879,1388-1399</code>、<code>main.cpp:113-122</code>（<code>points_records</code> 建表）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// models.cpp:93-97（积分用绝对值覆盖）
+bool update_user_points_in_db(const string&amp; user_id, int points) {
+    return db.execute_bind(
+        "UPDATE users SET points = ? WHERE id = ?",
+        {SqliteDb::Bind((long long)points), SqliteDb::Bind(user_id)});
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1874-1879（删班级只改库，不改内存 users）
+            if (ok) {
+                if (!class_name.empty()) {
+                    // 安全修复 V2：参数化更新学生班级
+                    db.execute_bind(
+                        "UPDATE users SET className='' WHERE className=?",
+                        {SqliteDb::Bind(class_name)});
+                }</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:331-340（内存记录用 size()+1 生成 ID，且只增不载）
+            int new_record_id = points_records.size() + 1;
+            PointsRecord new_record = { new_record_id, student_id, ... };
+            points_records.push_back(new_record);</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1388-1399（导出用了内存 points_records，其余表却查库）
+        json points_records_json = json::array();
+        for (const auto&amp; record : points_records) {
+            ...
+        }
+        export_data["points_records"] = points_records_json;</code></pre>
+<p><strong>问题</strong>：<code>users</code>（内存）与 <code>users</code>（DB）双写，<code>points_records</code>（内存）与 <code>points_records</code>（DB）双份，但两者<strong>没有一致性协议</strong>：</p>
+<ol>
+<li><strong>积分覆盖式写入</strong>：<code>update_user_points_in_db</code> 传绝对值为参数，任何并发/重复调用都会丢更新（配合 B8 变成双花）。</li>
+<li><strong>删班级后内存不刷</strong>：<code>routes_admin.cpp:1877</code> 只更新 DB，内存 <code>users[i].className</code> 仍是旧值，而 <code>/api/teacher/students</code>（<code>routes_teacher.cpp:78-96</code>）、<code>/api/admin/dashboard</code>（<code>routes_admin.cpp:367-373</code>）、<code>/api/student/info</code>（<code>routes_student.cpp:37-49</code>）等<strong>读内存</strong> → 前端仍显示学生属于已删除班级，且 <code>check_permission</code>（<code>auth.h:280-303</code>）依赖内存 <code>role_id</code>（DB 被外部工具/导入改动后不会同步）。</li>
+<li><strong><code>points_records</code> 只增不载</strong>：进程启动时从不从 DB 读取（<code>load_users_from_db</code> 只加载 users），因此 <code>/api/admin/export</code> 的 <code>points_records</code> 只包含<strong>本次运行期间</strong>产生的记录（重启即空），而同一响应里的 <code>evaluations/mall_items/redemption_records</code> 是查库的全量 —— 导出的“备份”本身不完整，用它恢复会丢积分历史。</li>
+<li><strong><code>new_record_id = size()+1</code></strong> 与 DB 自增 ID（<code>main.cpp:114</code>）无关，前端拿到的 <code>record.id</code> 与库中 id 不一致，且并发下重复（见 B5）。另外 <code>routes_teacher.cpp:363</code> 的 <code>operatorName</code> 是写死的 <code>"王老师"</code>（见 B26）。</li>
+<li><strong>CSV 导入不返回初始口令</strong>：<code>routes_teacher.cpp:926</code> 用 <code>generate_random_password()</code> 生成口令，但响应（<code>routes_teacher.cpp:959-967</code>）只返回成功/失败计数，<strong>不含口令</strong> → 该批学生账号无人知道口令，无法登录（对比单条新增学生会返回 <code>initial_password</code>，<code>routes_teacher.cpp:157</code>）。这是 V13“不再硬编码 123456”修复后遗留的功能缺口。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>积分一律用<strong>相对更新</strong>：<code>UPDATE users SET points = points + ? WHERE id = ?</code>（扣分加 <code>AND points + ? &gt;= 0</code> 守卫），内存对象只作展示缓存并在写库成功后用 DB 值刷新。</li>
+<li>引入“单一权威源”原则：写操作先落库、再统一刷新受影响的内存对象（封装 <code>apply_user_update(...)</code>），避免散落的“改内存 + 改库”两段式代码；长期方案是去掉内存用户表，改为按请求查库 + LRU 缓存。</li>
+<li>删班级/改班级后同步刷新内存中受影响学生的 <code>className</code>（或改为查库）。</li>
+<li><code>points_records</code> 增加启动加载（<code>load_points_records_from_db()</code>）或让导出直接查库；<code>new_record_id</code> 改由 DB 生成（<code>INTEGER PRIMARY KEY AUTOINCREMENT</code>）。</li>
+<li>CSV 批量导入的响应补充 <code>initial_password</code>（未提供密码时生成的），或要求导入方必须提供密码；二者择一但必须在文档中明确。</li>
+</ol>
+<p><strong>修复成本</strong>：M（相对更新 + 刷新封装 + 导入响应）；L（彻底去内存表）。</p>
+<hr>
+<h3 id="h-b19-无统一封装的管理端假数据与从未生效的权限码-medium">B19 —— 无统一封装的管理端假数据与从未生效的权限码【medium】</h3>
+<p><strong>位置</strong>：<code>routes_admin.cpp:52-72</code>、<code>1229-1244</code>；权限码使用面统计（§1.3 命令输出）；<code>main.cpp:230-248</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:60-70（系统信息写死）
+        json response = {
+            {"code", 200},
+            {"msg", "success"},
+            {"data", {
+                {"system_name", "校园文明能量站"},
+                {"version", "1.0.0"},
+                {"admin_count", 1},        // ← 固定 1，与真实用户数无关
+                {"teacher_count", 1},
+                {"student_count", 2}
+            }}
+        };</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1235-1243（"配置"接口返回写死的常量，PUT 版本 301-321 什么都不做）
+            {"securityConfig", {
+                {"loginTimeout", 30},
+                {"minPasswordLength", 6},
+                {"enableCaptcha", false}
+            }},
+            {"backupConfig", {
+                {"frequency", "daily"},
+                {"retentionDays", 7}
+            }}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:301-321（PUT /api/admin/system/config 只回“保存成功”，注释自承“这里可以保存配置”）
+            auto req_json = json::parse(req.body);
+            // 这里可以保存配置到数据库或文件
+            response = {{"code", 200}, {"msg", "配置保存成功"}};</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><code>GET /api/admin/system</code> 的计数是硬编码的假数据，与真实 <code>users</code> 完全脱钩（同文件 <code>routes_admin.cpp:362-373</code> 已经在算真实计数，两处不一致）；前端两个页面会显示互相矛盾的数字。</li>
+<li><code>GET /api/admin/system/config</code> 返回的“安全配置”全部是常量，<strong>与真实运行的 <code>g_config</code>（<code>config.h:13-37</code>）无关</strong>；<code>PUT</code> 版本解析请求后什么都不做却回复“保存成功” → 管理员以为改动了 <code>loginTimeout</code>/<code>minPasswordLength</code>/备份保留策略，实际<strong>没有生效</strong>（例如 <code>minPasswordLength</code> 在真实代码里是分散的 6 位判断，见 B20；<code>retentionDays</code> 无实现，见 B13）。</li>
+<li><strong>权限码空转</strong>：<code>main.cpp:230-242</code> 定义 12 个权限码并授予各角色（<code>main.cpp:244-248</code>），但 grep 显示 <code>check_permission_middleware</code> 只用到 7 个：<code>system:manage</code>、<code>user:manage</code>、<code>student:manage</code>、<code>points:manage</code>、<code>evaluation:manage</code>、<code>statistics:view</code>、<code>mall:manage</code>。<strong>从未被任何路由使用的 5 个</strong>：<code>parent:manage</code>(8)、<code>message:manage</code>(9)、<code>class:manage</code>(10)、<code>redemption:manage</code>(11)、<code>data:export</code>(12)（例如 <code>/api/admin/export</code> 用的是 <code>system:manage</code>，<code>/api/admin/classes</code> 用的是 <code>user:manage</code>，家长留言接口用的是 <code>student:manage</code>）。角色 2（教师）被授予的 <code>class:manage</code>/<code>redemption:manage</code>/<code>message:manage</code> 因此毫无作用，而 <code>role_permissions</code> 的实际含义与文档不符。</li>
+</ol>
+<p><strong>影响面</strong>：<code>/api/admin/system</code>、<code>/api/admin/system/config</code>（GET/PUT）、权限矩阵整体可维护性。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li><code>GET /api/admin/system</code> 改为复用真实统计（把 <code>routes_admin.cpp:362-373</code> 的计数逻辑抽成函数并两处共用）。</li>
+<li><code>GET /api/admin/system/config</code> 返回 <code>g_config</code> 的真实字段（端口、线程数、会话时长、锁定阈值、CSRF 开关、CORS 白名单等）；<code>PUT</code> 要么实现持久化+热更新（写入 <code>config.json</code> 并加锁重载），要么明确返回 501/400“不支持运行时修改”，不要谎报成功。</li>
+<li>权限码与路由建立<strong>显式映射表</strong>（代码里一张 <code>route → permission_code</code> 表，或至少在 <code>docs/</code> 中列出并加测试），把未使用的权限码真正接到对应接口（<code>class:manage</code> → <code>/api/admin/classes*</code>，<code>data:export</code> → <code>/api/admin/export</code>，<code>parent:manage</code> → 家长账号管理，<code>redemption:manage</code> → 兑换记录查看，<code>message:manage</code> → 留言接口），否则从权限表中删除以免误导。</li>
+</ol>
+<p><strong>修复成本</strong>：S（假数据/权限码映射）～ M（配置热更新）。</p>
+<hr>
+<h3 id="h-b20-口令比较非常量时间-密码强度校验不一致-迭代次数无上限-low">B20 —— 口令比较非常量时间；密码强度校验不一致；迭代次数无上限【low】</h3>
+<p><strong>位置</strong>：<code>sha256.h:170-188</code>、<code>routes_public.cpp:131-136</code>、<code>routes_admin.cpp:491-492</code>、<code>routes_teacher.cpp:926</code>、<code>routes_admin.cpp:862-871</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// sha256.h:186-187（旧哈希走非常量时间比较）
+    // 旧版兼容：无盐 SHA256
+    return sha256(password) == hash;</code></pre>
+<pre class="code" data-lang="cpp"><code>// sha256.h:176（迭代数来自存储串，未做上下界校验）
+        int iters = std::atoi(hash.c_str() + 7);</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_public.cpp:131-136（只有注册入口做长度校验）
+            // 安全修复 V8：密码最小长度校验
+            if (password.length() &lt; 6) {</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:491-492（管理员建用户：只校验非空）
+            if (username.empty() || name.empty() || password.empty()) {</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li>旧哈希分支用 <code>std::string::operator==</code>（逐字节短路），理论上存在比较时序侧信道；虽然远程测量的噪声很大，但项目已经在别处（<code>verify_password</code> 的 pbkdf2 分支 <code>sha256.h:181-184</code>、CSRF 比较 <code>auth.h:164-167</code>）刻意实现了常量时间比较，属<strong>风格不一致</strong>，修复成本极低。</li>
+<li>密码长度下限只在自助注册（<code>routes_public.cpp:132</code>）实现；管理员创建用户（<code>routes_admin.cpp:491</code>）、SQL/JSON 导入（<code>routes_admin.cpp:1490-1492</code>）、教师 CSV 导入（<code>routes_teacher.cpp:926</code> 直接采用 CSV 里的口令）、管理员重置密码（<code>routes_admin.cpp:866</code> 只在非自动生成时才校验）均无下限 → 可以创建 1 字符口令的账号（配合 B2/B1 影响放大）。</li>
+<li><code>atoi(hash.c_str()+7)</code> 无上限：若 DB 中的哈希被写入超大迭代数（例如通过 B16 的导入路径或直接改库），校验会变成 CPU 炸弹（配合 B14 可放大为 DoS）。</li>
+<li>值得肯定的是：<code>hash_password</code>（<code>sha256.h:162-166</code>）确实做了 per-user 随机盐（<code>generate_random_hex(16)</code>）与 100000 次迭代 —— <strong>因此“全项目无 per-user salt”的说法不成立</strong>，问题只在算法实现错误（B1）与上述细节。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>旧分支改为常量时间比较（复用 <code>sha256.h:182-184</code> 的写法或抽 <code>constant_time_equal(a,b)</code>）。</li>
+<li>统一在<strong>所有</strong>设置口令的入口调用同一个 <code>validate_password_strength()</code>（长度 ≥ 8、含字母数字、拒绝用户名/学号等），放在服务端而非各 handler。</li>
+<li><code>iters</code> 限幅：<code>iters = std::clamp(iters, 10000, 1000000)</code>，非法值直接判失败。</li>
+<li>顺带：<code>hash_password</code> 建议把迭代数提升到 210k 以上（OWASP 2023 对 PBKDF2-SHA256 的建议）并存入字符串（已经是这个格式，易于升级）。</li>
+</ol>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b21-csprng-使用细节-重复构造-device-逐字节取样-模偏差-low">B21 —— CSPRNG 使用细节：重复构造 device、逐字节取样、模偏差【low】</h3>
+<p><strong>位置</strong>：<code>sha256.h:150-159</code>、<code>200-227</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// sha256.h:150-159
+// 安全修复 V4：CSPRNG —— 使用 std::random_device 生成随机字节
+inline std::string generate_random_hex(int bytes) {
+    std::random_device rd;
+    std::ostringstream oss;
+    for (int i = 0; i &lt; bytes; i++) {
+        unsigned char b = (unsigned char)(rd() &amp; 0xFF);
+        oss &lt;&lt; std::hex &lt;&lt; std::setw(2) &lt;&lt; std::setfill('0') &lt;&lt; (int)b;
+    }
+    return oss.str();
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// sha256.h:206-216（模偏差 + 逐字符调用 rd()）
+    std::random_device rd;
+    std::uniform_int_distribution&lt;int&gt; len_dist(0, 4);
+    int length = 8 + len_dist(rd);
+
+    std::string password;
+    password += uppercase[rd() % uppercase.length()];
+    password += lowercase[rd() % lowercase.length()];</code></pre>
+<p><strong>问题</strong>（安全性 OK，属质量/性能问题，故列 low）：</p>
+<ol>
+<li>安全结论（已取证）：<code>std::random_device</code> 在本工具链上<strong>确实</strong>是密码学安全源。证据链：<code>C:\mingw64\...\bits\c++config.h:1693,1755</code> 显示 <code>_GLIBCXX_USE_DEV_RANDOM</code>/<code>_GLIBCXX_USE_RANDOM_TR1</code> 均未定义 → 走 Windows 专用回退实现；<code>server.exe</code> 二进制中存在 <code>"random_device: rdseed failed."</code>/<code>"random_device: rand_s failed."</code> 字符串与 <code>advapi32!SystemFunction036</code>（= <code>RtlGenRandom</code>）导入 → 使用 rdseed/rdrand/<code>rand_s</code> 链路。因此 <code>generate_session_id()</code>（<code>auth.h:102-104</code>，32 字节 = 256 位）具备足够熵。</li>
+<li>缺陷：每次调用都<strong>新建</strong> <code>random_device</code>（会重新探测/打开底层源），并为<strong>每个字节</strong>调用一次 <code>rd()</code> 后只取低 8 位（浪费 24 位熵、每次调用数十次系统调用）；<code>rd() % n</code> 引入极小模偏差（n=62 时偏差 10^-7 量级，实践中无影响）。</li>
+<li><code>generate_random_password</code> 的 Fisher–Yates 用 <code>rd() % length</code>，同样是模偏差；且长度仅 8–12 位。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<pre class="code" data-lang="cpp"><code>inline const std::random_device&amp; rng_device() { static std::random_device rd; return rd; }  // 静态复用
+// 或更好：用一个 CSPRNG 引擎持有 256 位种子：
+// static std::mt19937_64 gen(seed_from_random_device());
+// 取字节时一次性使用 rd() 返回的 32 位（4 字节/次调用），并用 std::uniform_int_distribution 消除模偏差</code></pre>
+<p>（注意：<code>std::mt19937_64</code> 只适合与随机种子配合的会话 ID 场景，密钥类材料建议继续直接用 <code>random_device</code>/<code>BCryptGenRandom</code>。）</p>
+<p><strong>影响面</strong>：<code>auth.h:102-104</code>（会话 ID）、<code>auth.h:172</code>（CSRF token）、<code>sha256.h:163</code>（盐）、<code>sha256.h:200</code>（随机口令）。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b22-疑似-localtime-在无锁上下文并发调用-low">B22 —— 🔶疑似：<code>localtime()</code> 在无锁上下文并发调用【low】</h3>
+<p><strong>位置</strong>：<code>routes_teacher.cpp:554-557</code>、<code>routes_teacher.cpp:646-647</code>、<code>routes_admin.cpp:1277-1285</code>；对照 <code>logger.h:72-75</code>（在锁内）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:554-557
+        time_t now = time(nullptr);
+        tm* today_tm = localtime(&amp;now);
+        char today_str[16];
+        strftime(today_str, sizeof(today_str), "%Y-%m-%d", today_tm);</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1277-1285
+        time_t now = time(nullptr);
+        tm* tm_info = localtime(&amp;now);
+        ...
+            tm* target_tm = localtime(&amp;target_time);</code></pre>
+<p><strong>问题</strong>：<code>localtime()</code> 返回指向共享 <code>struct tm</code> 的指针（C 标准明确其可能使用静态缓冲）。这些调用发生在 httplib 的 8 个 worker 线程中且<strong>没有任何锁</strong>；与之对比，<code>Logger::log</code> 里的 <code>localtime</code>（<code>logger.h:73</code>）被 <code>std::mutex</code>（<code>logger.h:61</code>）保护。若运行库的 <code>localtime</code> 使用进程级共享缓冲，则并发调用会产生<strong>时间字段串扰</strong>（偶发的错误日期/月份，影响“今日积分统计”与 7 日趋势图），构成数据竞争。 <strong>为什么标为疑似</strong>：Windows UCRT/MSVCRT 的 <code>localtime</code> 在多数版本里使用线程局部缓冲，实际串扰概率低；我无法在不运行程序的前提下确证本二进制所用 CRT 的行为。但“不该依赖实现细节”这一点是确定的。</p>
+<p><strong>建议改法</strong>：统一改用 <code>localtime_s(&amp;tm_buf, &amp;t)</code>（MSVC/MinGW 均可用）或 <code>gmtime_r</code>/<code>localtime_r</code>（POSIX），并在项目内抽一个 <code>std::tm safe_localtime(std::time_t)</code> 帮助函数；顺带把 <code>routes_teacher.cpp:646-661</code> 的月份计算（手写跨年回退）也搬进该函数。</p>
+<p><strong>影响面</strong>：教师工作台统计、教师统计图、管理员统计的趋势图。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b23-单连接串行化-重复会话查询-n-1-查询-性能-low">B23 —— 单连接串行化 + 重复会话查询 + N+1 查询（性能）【low】</h3>
+<p><strong>位置</strong>：<code>sqlite_wrapper.h:14-32,27-29</code>（注释与实际不符）、<code>auth.h:196-197</code>、<code>auth.h:323-364</code>、<code>routes_admin.cpp:1704-1712</code>、<code>routes_teacher.cpp:560-570</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:25-29
+        // 并发修复：服务器为多线程（ThreadPool 共享本连接），
+        // 无 busy_timeout 时并发写会立即返回 SQLITE_BUSY（database is locked）
+        sqlite3_busy_timeout(db_, 5000);
+        // WAL 模式：读写不互斥，进一步降低并发下的锁冲突
+        execute("PRAGMA journal_mode=WAL;");</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:1704-1711（列表里对每行再发一条 COUNT 查询 → N+1）
+        json result = db.query("SELECT id, name, grade, grade_code, class_code, head_teacher, description FROM classes ORDER BY id");
+        for (const auto&amp; row : result) {
+            string class_name = row.value("name", "");
+            json count_result = db.query_bind(
+                "SELECT COUNT(*) as cnt FROM users WHERE className=? AND role_id=3",
+                {SqliteDb::Bind(class_name)});</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:334-347（每个受保护请求至少 2 次会话查询，verify_session 里还可能 1 次 DELETE）
+    std::string user_id = verify_session(session_id);
+    ...
+    if (!get_session_info(session_id, user_id, role_id, is_parent, student_id) || is_parent) {</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>注释与实际不符</strong>（这是本轮线索 4 的关键判断）：<code>sqlite3_busy_timeout</code> + WAL 只能缓解<strong>多连接之间</strong>的锁冲突。本进程只有<strong>一条</strong>连接（<code>sqlite_wrapper.h:209</code>，全局单例 <code>main.cpp:22</code>），线程间不存在 <code>SQLITE_BUSY</code>；真正的串行化来自 SQLite 的<strong>连接级互斥</strong>（<code>SQLITE_THREADSAFE</code> 默认 1，见 <code>sqlite3.c:14046-14052</code>；<code>README.md:249</code> 的编译命令未传 <code>-DSQLITE_THREADSAFE</code>）。因此“加了 busy_timeout 就解决并发”的判断是错的：它既不解决 B7/B8 的语义竞态，也（在单连接下）不解决 B5 的容器竞态。</li>
+<li><strong>吞吐</strong>：所有 DB 调用被一把内部互斥串行化，8 个 worker 线程在 DB 上排队；WAL 在此模型下收益有限（单连接无法真正并行读）。</li>
+<li><strong>重复会话查询</strong>：每个受保护请求先 <code>verify_session</code>（1 次 SELECT，可能 1 次 DELETE）再 <code>get_session_info</code>（1 次 SELECT，且是 B11 的拼接版本），<code>check_permission_middleware</code>（<code>auth.h:323-364</code>）之后 handler 往往<strong>再查一遍</strong> <code>verify_session</code>（如 <code>routes_teacher.cpp:14</code> 与 <code>18-19</code>、<code>routes_student.cpp:15</code> 与 <code>19-20</code>）→ 单请求 3~4 次会话查询。</li>
+<li><strong>登录时的全表清理</strong>：每次登录都执行 <code>DELETE FROM sessions WHERE expires_at &lt; now</code>（<code>auth.h:196-197</code>），若索引未命中会全表扫描（<code>idx_sessions_expires_at</code> 已建，<code>main.cpp:217</code>，风险可控）。</li>
+<li><strong>N+1</strong>：班级列表（<code>routes_admin.cpp:1708</code>）、教师工作台（<code>routes_teacher.cpp:560-570</code> 对<strong>每个学生</strong>发一条 JOIN 查询）随数据量线性放大。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>改为<strong>每线程一条连接</strong>（<code>thread_local</code>）或连接池（<code>N = thread_count</code>），配合 WAL + <code>busy_timeout</code> + <code>BEGIN IMMEDIATE</code>，让 WAL 真正生效并获得并行读；</li>
+<li>会话校验合并为一次 JOIN 查询（一次拿到 <code>user_id/role_id/is_parent/student_id/permissions</code>），并在同一请求内<strong>缓存</strong>（把结果放进线程局部或请求上下文对象），去掉重复的 <code>verify_session</code>；</li>
+<li>N+1 改为一条聚合 SQL（<code>LEFT JOIN</code> + <code>GROUP BY</code>，或 <code>IN (...)</code> 批量查询）；</li>
+<li>修正 <code>sqlite_wrapper.h:25-28</code> 的注释，避免误导后续维护者（重要：这条注释正是“已知问题被掩盖”的典型）。</li>
+</ol>
+<p><strong>影响面</strong>：全站性能；并发压测下最明显的是教师/管理员统计页与班级管理页。</p>
+<p><strong>修复成本</strong>：M（thread_local 连接 + 归并查询）。</p>
+<hr>
+<h3 id="h-b24-get_cookie_value-裸子串匹配导致-cookie-名混淆-low">B24 —— <code>get_cookie_value()</code> 裸子串匹配导致 Cookie 名混淆【low】</h3>
+<p><strong>位置</strong>：<code>auth.h:67-82</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// auth.h:71-81
+    std::string cookie_header = it-&gt;second;
+    std::string search = name + "=";
+    size_t pos = cookie_header.find(search);      // ← 未要求出现在 Cookie 名边界
+    if (pos == std::string::npos) return "";
+    pos += search.size();
+    size_t end = cookie_header.find(';', pos);</code></pre>
+<p><strong>问题</strong>：只做子串查找，不校验前缀是 <code>; </code> 或串首。若请求同时带有 <code>xsid=AAA; sid=BBB</code>（或任何以 <code>sid=</code> 结尾的 cookie 名，如 <code>mysid=</code>），<code>find("sid=")</code> 会命中 <code>xsid=</code> 内部的位置并返回 <code>AAA</code>。会话 ID 因此可能取自错误的 Cookie。在当前自研代码里没有设置其他 <code>*sid</code> cookie，所以<strong>不可被远程直接利用</strong>；但一旦引入同名后缀 cookie（或与前端/其他中间件共享域），会话解析就会静默错乱，且攻击者若能写同域 Cookie（如通过子域 XSS）可借此做会话固定/覆盖。</p>
+<p><strong>建议改法</strong>：按 <code>';'</code> 切分再对每段 <code>trim</code> 后判断 <code>segment.compare(0, name.size(), name) == 0 &amp;&amp; segment[name.size()] == '='</code>，或使用现成的 cookie 解析器；同时拒绝值中含 NUL/超过长度上限（见 B11 的 session_id 格式校验）。</p>
+<p><strong>影响面</strong>：所有依赖 <code>get_cookie_value(req,"sid")</code>/<code>"csrf_token"</code> 的接口。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b25-set_cors_headers-res-单参重载是死代码-401-403-与预检不回显-acao-low">B25 —— <code>set_cors_headers(res)</code> 单参重载是死代码；401/403 与预检不回显 ACAO【low】</h3>
+<p><strong>位置</strong>：<code>auth.h:21-33</code>、<code>auth.h:329,338,350,358</code>、<code>routes_static.cpp:72-75</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// auth.h:21-33
+// 安全修复 V9：CORS 头设置 —— 仅在请求 Origin 命中白名单时回显
+inline void set_cors_headers(httplib::Response&amp; res) {
+    res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+    if (g_config.cors_allowed_origins.empty()) {
+        // 未配置白名单：不回显 Origin，禁止跨域凭据
+        return;
+    }
+    // 没有 Origin 头视为同源，不回显
+    auto it = res.headers.find("Origin");          // ← 未使用变量：永远查不到，函数到此结束
+    // httplib Response 通常没有 Origin；尝试从 Request 读取由路由层注入
+    // 此处保留默认不回显；具体 Origin 回显在 set_cors_headers(req, res) 重载中处理
+}</code></pre>
+<pre class="code" data-lang="cpp"><code>// routes_static.cpp:72-75（OPTIONS 预检用单参版本 → 无 ACAO，跨域预检必然失败）
+    svr.Options(R"(.*)", [](const httplib::Request&amp; req, httplib::Response&amp; res) {
+        set_cors_headers(res);
+        res.status = 200;
+    });</code></pre>
+<pre class="code" data-lang="cpp"><code>// auth.h:327-331（中间件里的 401 也用单参版本）
+        res.status = 401;
+        json response = {{"code", 401}, {"msg", "未登录"}};
+        set_cors_headers(res);</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li>单参重载里的 <code>auto it = res.headers.find("Origin");</code> 是<strong>未使用变量</strong>（编译器会告警），且整个函数在 <code>cors_allowed_origins</code> 非空时<strong>什么也没做</strong>就直接结束——注释自己承认“此处保留默认不回显”。这是典型的<strong>半成品死代码</strong>，容易让人误以为 401/403 也带了 ACAO。</li>
+<li>中间件的 401/403 响应（<code>auth.h:329,338,350,358</code>）不带 <code>Access-Control-Allow-Origin</code>，浏览器端（跨域部署时）<strong>读不到响应体</strong>，前端无法区分“未登录”与“网络错误”。</li>
+<li><code>routes_static.cpp:72</code> 的 OPTIONS 预检同样不回显 ACAO → 只要真跨域（例如前端 dev server 直连 8080、或前后端分域部署），<strong>所有带自定义头（<code>X-CSRF-Token</code>）的请求预检都会失败</strong>。当前 <code>config.json:23-25</code> 白名单为空，所以只能在同源部署下工作；若按 <code>config.h:28-29</code> 的意图配置白名单，预检仍会失败——<strong>配置了也修不好</strong>。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>删除单参重载（或改为 <code>delete</code>），强制所有调用点传入 <code>req</code>，让“需要 Origin 上下文”由类型系统保证；OPTIONS 与中间件统一改用 <code>set_cors_headers(req, res)</code>。</li>
+<li>预检响应补 <code>Access-Control-Max-Age</code>，并对 OPTIONS 直接返回 204。</li>
+<li>加一条集成测试：配置白名单后，从不同 Origin 发 OPTIONS + 带凭据的 GET，断言 <code>Access-Control-Allow-Origin</code>/<code>-Credentials</code> 存在。</li>
+</ol>
+<p><strong>影响面</strong>：所有跨域场景；本机同源部署下无明显表现（因此列为 low）。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b26-响应中硬编码操作人姓名-low">B26 —— 响应中硬编码操作人姓名【low】</h3>
+<p><strong>位置</strong>：<code>routes_teacher.cpp:363</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// routes_teacher.cpp:355-364
+                    {"record", {
+                        {"id", new_record_id},
+                        {"studentId", student_id},
+                        {"studentName", it-&gt;name},
+                        {"className", it-&gt;className},
+                        {"points", type == "add" ? points : -points},
+                        {"reason", reason},
+                        {"time", get_current_time()},
+                        {"operatorName", "王老师"}          // ← 与真实操作者无关
+                    }}</code></pre>
+<p><strong>问题</strong>：<code>POST /api/teacher/points</code> 的响应把操作人写成常量 <code>"王老师"</code>（同文件 <code>routes_teacher.cpp:329-330</code> 已经取到了真实的 <code>current_user_id</code>）。任何教师操作积分记录，前端展示的操作人都是“王老师” → 操作审计信息错误（若前端直接用该字段渲染，还会与 <code>/api/teacher/points/records</code> 查库得到的真实 <code>operator_name</code> 不一致，如 <code>routes_teacher.cpp:407</code>）。</p>
+<p><strong>建议改法</strong>：用 <code>find_user_by_id(current_user_id)</code> 取真实姓名（或直接回 <code>operator_id</code> 让前端展示），并与 <code>points_records.operator_id</code> 落库值保持一致。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b27-检测到旧-schema-时直接删除数据库文件-无备份-无失败处理-low">B27 —— 检测到旧 schema 时直接删除数据库文件（无备份/无失败处理）【low】</h3>
+<p><strong>位置</strong>：<code>main.cpp:60-75</code>、<code>models.cpp:62-63</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// main.cpp:63-72
+        if (users_table_is_old_schema()) {
+            Logger::warning("检测到旧 schema（users.id 为 INTEGER），删除数据库文件并重建为新 schema (TEXT 主键)");
+            db.close();
+            if (std::remove(g_config.db_path.c_str()) != 0) {
+                Logger::error("删除旧数据库文件失败: " + g_config.db_path);
+            }
+            if (!db.open(g_config.db_path)) {
+                Logger::error("重新打开数据库失败");
+            }
+        }</code></pre>
+<pre class="code" data-lang="cpp"><code>// models.cpp:62-63
+        User u;
+        u.id = row.value("id", "");        // 旧 schema 下 id 为 INTEGER → type_error</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>破坏性迁移</strong>：检测到旧 schema 就直接 <code>std::remove()</code> 删库（用户、积分、兑换、留言全部丢失），没有先备份、没有二次确认、没有迁移脚本。对教学/竞赛项目尚可接受，但这是<strong>静默数据销毁</strong>，任何误判（例如 <code>users_table_is_old_schema()</code> 在特殊表结构下返回 true）都会造成不可恢复的损失。</li>
+<li><strong>删除失败路径的后果</strong>：<code>std::remove</code> 失败（文件被其他进程占用/权限不足）时只记一条 error 然后<strong>继续</strong>（<code>main.cpp:69</code> 重开同一文件）→ 旧 schema 仍在 → <code>load_users_from_db()</code> 的 <code>row.value("id","")</code>（<code>models.cpp:63</code>）遇到 INTEGER 的 id 会抛 <code>type_error</code>，而 <code>main()</code>（<code>main.cpp:277</code>）<strong>没有 try/catch</strong> → <code>std::terminate</code> → 进程启动即崩溃，且没有可读的失败原因（只有 stderr 的 terminate 信息）。</li>
+<li>该自动迁移还会在<strong>每次启动</strong>检查一次（<code>main.cpp:60-63</code>），且删除后不重建 WAL/journal 等伴生文件（<code>-wal</code>/<code>-shm</code> 可能残留，导致新库首次打开时读入旧 WAL，存在数据错乱风险）。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>改为“备份后迁移”：先 <code>std::filesystem::rename(db_path, db_path + ".bak")</code>（Windows 上 rename 可避免占用问题），再建新库并从备份<strong>迁移数据</strong>（<code>INSERT INTO users_new SELECT CAST(id AS TEXT), ... FROM users_old</code>）。</li>
+<li><code>load_users_from_db()</code> 内部对 <code>id</code> 做类型自适应（<code>row["id"].is_number_integer() ? std::to_string(...) : row.value("id","")</code>），并在 <code>main()</code> 顶层包一层 <code>try/catch</code>，把异常转成可读日志 + 非零退出码。</li>
+<li>迁移前要求显式开关（如 <code>--migrate-old-schema</code>），默认只告警不删库。</li>
+</ol>
+<p><strong>影响面</strong>：服务启动路径。</p>
+<p><strong>修复成本</strong>：S（加备份 + try/catch）～ M（实现真正迁移）。</p>
+<hr>
+<h3 id="h-b28-声明了外键但未开启-pragma-foreign_keys-约束全部不生效-low">B28 —— 声明了外键但未开启 <code>PRAGMA foreign_keys</code>：约束全部不生效【low】</h3>
+<p><strong>位置</strong>：<code>main.cpp:108-111,120-121,133-135,154-155,175,185-186,200</code>；<code>sqlite_wrapper.h:19-32</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="sql"><code>-- main.cpp:104-111
+            CREATE TABLE IF NOT EXISTS role_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_id INTEGER NOT NULL,
+                permission_id INTEGER NOT NULL,
+                FOREIGN KEY (role_id) REFERENCES roles(id),
+                FOREIGN KEY (permission_id) REFERENCES permissions(id),
+                UNIQUE(role_id, permission_id)
+            );</code></pre>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:19-32（打开连接后只设置 busy_timeout 与 journal_mode，无 foreign_keys）
+        sqlite3_busy_timeout(db_, 5000);
+        execute("PRAGMA journal_mode=WAL;");</code></pre>
+<p><strong>问题</strong>：SQLite 默认 <code>foreign_keys=OFF</code>（<strong>每个连接</strong>都需显式开启），本仓库全文 grep 无 <code>foreign_keys</code>。因此 <code>main.cpp</code> 里声明的所有 <code>FOREIGN KEY</code>（users/points_records/evaluations/redemption_records/teacher_classes/parent_students/parent_messages）<strong>完全不生效</strong>：</p>
+<ul>
+<li>可以插入不存在学生的积分记录（数据脏）；</li>
+<li>删除用户/班级后 <code>teacher_classes</code>、<code>parent_students</code>、<code>parent_messages</code> 会留下孤儿行（<code>routes_admin.cpp:816-823</code> 只手工清理了 <code>teacher_classes</code>/<code>parent_students</code>，没有清理 <code>parent_messages</code>/<code>points_records</code>/<code>evaluations</code>/<code>redemption_records</code>）；</li>
+<li><code>routes_admin.cpp:1871-1879</code> 删除班级时 <code>classes.id</code> 被删而 <code>teacher_classes.class_id</code> 悬空。</li>
+</ul>
+<p>项目在业务层做了部分补偿，但补齐的只是个别表，整体依赖不成立。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>在 <code>SqliteDb::open()</code> 里加 <code>execute("PRAGMA foreign_keys=ON;")</code>，并确认 <code>sqlite3_open</code> 未启用 <code>SQLITE_DEFAULT_FOREIGN_KEYS</code> 之外的假设；</li>
+<li>开启前先清理历史脏数据（<code>DELETE FROM ... WHERE ... NOT IN (SELECT id FROM ...)</code>），否则开启后写入会开始报错；</li>
+<li>或在业务层为每张表补齐级联删除（更明确但更易漏）；建议 1+2。</li>
+<li>同时把 <code>ON DELETE CASCADE/SET NULL</code> 写进建表语句（<code>main.cpp:104-211</code>），让删除语义由 schema 表达。</li>
+</ol>
+<p><strong>修复成本</strong>：S（开 PRAGMA + 清脏数据）。</p>
+<hr>
+<h3 id="h-b29-db-层错误只写-std-cerr-不进入-logger-low">B29 —— DB 层错误只写 <code>std::cerr</code>，不进入 Logger【low】</h3>
+<p><strong>位置</strong>：<code>sqlite_wrapper.h:45-48,60,131-133,156-158</code>；对照 <code>main.cpp:53</code>（<code>Logger::init</code>）</p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:41-51
+    bool execute(const std::string&amp; sql) {
+        if (!db_) return false;
+        char* errMsg = nullptr;
+        int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &amp;errMsg);
+        if (rc != SQLITE_OK) {
+            std::cerr &lt;&lt; "SQL错误: " &lt;&lt; errMsg &lt;&lt; std::endl;
+            sqlite3_free(errMsg);
+            return false;
+        }</code></pre>
+<pre class="code" data-lang="cpp"><code>// sqlite_wrapper.h:58-61
+        int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &amp;stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            std::cerr &lt;&lt; "查询失败: " &lt;&lt; sqlite3_errmsg(db_) &lt;&lt; std::endl;</code></pre>
+<p><strong>问题</strong>：所有 SQL 失败都只输出到 <code>std::cerr</code>：</p>
+<ul>
+<li>不进入 <code>Logger</code> 的文件（<code>server.log</code>）与轮转，运维事后无法检索（“为什么昨天的统计是 0”无法回答）；</li>
+<li>没有时间戳、没有请求/trace 上下文、没有 SQL 语句本身；</li>
+<li>Windows GUI/服务方式启动（或 stdout 重定向）时 stderr 可能完全丢失；</li>
+<li>与 B12 叠加：错误既没被上报也没被调用方感知，成为<strong>完全静默的失败</strong>。</li>
+</ul>
+<p><strong>建议改法</strong>：<code>SqliteDb</code> 依赖 <code>logger.h</code>（或注入一个 <code>std::function&lt;void(const std::string&amp;)&gt;</code> 日志回调，避免头文件循环依赖），把 <code>std::cerr</code> 全部替换为 <code>Logger::error("SQL 失败: " + errmsg + " | sql=" + sql)</code>；同时返回错误信息给调用方（见 B12）；对高频失败加计数器/告警。</p>
+<p><strong>影响面</strong>：全部 DB 操作的可观测性。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h3 id="h-b30-日志轮转在加锁前执行-toctou-并发-rename-且每条日志都-stat-open-low">B30 —— 日志轮转在加锁前执行（TOCTOU/并发 rename），且每条日志都 stat+open【low】</h3>
+<p><strong>位置</strong>：<code>logger.h:41-62</code></p>
+<p><strong>证据</strong>：</p>
+<pre class="code" data-lang="cpp"><code>// logger.h:41-56
+    static void rotate_if_needed() {
+        std::ifstream ifs(log_file_, std::ios::ate | std::ios::binary);
+        if (!ifs) return;
+        size_t size = ifs.tellg();
+        ifs.close();
+
+        if (size &lt; log_max_size_) return;
+
+        for (int i = log_max_files_ - 1; i &gt;= 1; i--) {
+            std::string old_name = log_file_ + "." + std::to_string(i);
+            std::string new_name = log_file_ + "." + std::to_string(i + 1);
+            std::rename(old_name.c_str(), new_name.c_str());
+        }
+        std::rename(log_file_.c_str(), (log_file_ + ".1").c_str());
+    }</code></pre>
+<pre class="code" data-lang="cpp"><code>// logger.h:58-62
+    static void log(Level level, const std::string&amp; message) {
+        rotate_if_needed();                    // ← 在锁之外
+
+        std::lock_guard&lt;std::mutex&gt; lock(mutex_);</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><code>rotate_if_needed()</code> 在获取 <code>mutex_</code> <strong>之前</strong>调用（<code>logger.h:59</code> vs <code>61</code>），因此轮转逻辑本身不受锁保护：两个线程可同时判定“需要轮转”并同时 rename（第二次 rename 目标已存在，Windows 上直接失败/覆盖语义不定），或在 AB 线程重命名时 C 线程正准备写入；<code>tellg()</code> 的失败（<code>ifs.tellg()</code> 返回 -1 赋给 <code>size_t</code> → 巨大值）会导致<strong>每写一条日志都触发一次轮转</strong>。</li>
+<li>性能：每条日志都要 <code>open+stat+close</code> 两次（rotate 的 <code>ifstream</code> + append 的 <code>ofstream</code>），而日志在整个请求路径上被高频调用（<code>main.cpp:289-292</code> 每请求 2 条、<code>routes_*</code> 中还有额外 <code>Logger::info</code>）。</li>
+<li><code>log_max_files_</code> 的循环把 <code>.4</code>→<code>.5</code> 也重命名，最终保留 <code>max_files+1</code> 个文件（与配置 <code>max_files: 5</code> 的语义略有出入，属细节）。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>把 <code>rotate_if_needed()</code> 移入锁内（<code>logger.h:59-61</code> 交换顺序），或改为独立的“轮转锁”。</li>
+<li><code>tellg()</code> 结果判负：<code>auto sz = ifs.tellg(); size_t size = (sz &lt; 0) ? 0 : static_cast&lt;size_t&gt;(sz);</code></li>
+<li>用常驻的 <code>std::ofstream</code>（<code>Logger::init</code> 打开、<code>log</code> 复用）+ 维护的写入字节计数来替代“每条日志 stat”；写入失败时再重开。</li>
+<li>轮转改为基于时间（按天）或按计数触发，并在轮转时先 <code>flush/close</code> 当前流。</li>
+</ol>
+<p><strong>影响面</strong>：日志可靠性/性能（<code>server.log</code> 已 5MB，说明确有使用）。</p>
+<p><strong>修复成本</strong>：S。</p>
+<hr>
+<h2 id="h-4-做得好的地方-均有源码依据">4. 做得好的地方（均有源码依据）</h2>
+<ol>
+<li><strong>会话 ID 是真正的 CSPRNG</strong>：<code>auth.h:102-104</code> → <code>sha256.h:151-159</code>，32 字节 = 64 hex 字符（256 位熵）。取证链：<code>c++config.h:1693,1755</code>（<code>_GLIBCXX_USE_DEV_RANDOM</code>/<code>RANDOM_TR1</code> 未定义）→ <code>server.exe</code> 内含 <code>"random_device: rdseed failed."</code>/<code>"rand_s failed."</code> 与 <code>advapi32!SystemFunction036</code>（<code>RtlGenRandom</code>）。<strong>这一条比“看起来像随机”更实质</strong>：MinGW 上 <code>std::random_device</code> 常被误认为会退化成 LCG，此处已证伪。</li>
+<li><strong>会话 SQL 的主体已参数化</strong>：<code>auth.h:196-217</code>（<code>execute_bind</code>）、<code>auth.h:223-232</code>（<code>query_bind</code>）并配有明确注释；<code>models.cpp:77-97</code> 的全部用户写操作、<code>routes_*.cpp</code> 中大量查询都用 <code>?</code> 绑定（如 <code>routes_public.cpp:272-274,343-345</code>、<code>routes_parent.cpp:26-28,92-96,397-401</code>、<code>routes_teacher.cpp:28-34,388-397</code>、<code>routes_admin.cpp:594-596,1708-1710,1862-1864</code>）。</li>
+<li><strong><code>sqlite_wrapper.h:127-148</code> 的 <code>Bind</code> 变体设计</strong>：<code>INT/DBL/STR/NUL</code> 四型 + <code>string</code> 用 <code>sqlite3_bind_text(..., SQLITE_TRANSIENT)</code>（免悬垂），<code>long long</code> 重载避免了大整数被截断。</li>
+<li><strong>CSRF 采用双重提交 Cookie + 常量时间比较</strong>：<code>auth.h:158-168</code>（<code>csrf_check</code>，第 164-167 行逐字节 XOR 累积比较）、<code>auth.h:171-177</code>（<code>issue_csrf_token</code>，CSPRNG 16 字节）、<code>auth.h:180-187</code>（<code>require_csrf</code> 对 GET/HEAD/OPTIONS 豁免），并在大量写接口接线（<code>routes_public.cpp:99,315</code>、<code>routes_teacher.cpp:111,176,243,281,471,787,819,847,1039,1104</code>、<code>routes_admin.cpp:153,198,239,308,331,477,567,677,796,846,967,1023,1064,1100,1136,1177,1427,1748,1800,1851</code>）。</li>
+<li><strong>Cookie 安全属性</strong>：<code>auth.h:85-97</code>，<code>HttpOnly</code> + <code>SameSite=Lax</code> + 可选 <code>Secure</code>（<code>config.h:31,84</code> 在 HTTPS 时自动开启）。</li>
+<li><strong>CORS 采用白名单反射而非通配</strong>：<code>auth.h:36-51</code>（命中白名单才回显 <code>Origin</code>，并加 <code>Vary: Origin</code>、<code>Allow-Credentials: true</code>），空白名单时保守不回显（<code>auth.h:39</code>）。</li>
+<li><strong>静态资源路径穿越防护</strong>：<code>routes_static.cpp:14-23</code>（拒绝含 <code>..</code>、拒绝 <code>//</code> 起手、拒绝盘符），<code>routes_static.cpp:26-44</code> 用精确扩展名匹配 Content-Type（避免 <code>.js</code> 命中 <code>.json</code>），只从固定的 <code>frontend/dist</code> 子目录读取（<code>routes_static.cpp:10,47-57</code>）。</li>
+<li><strong>权限校验做了参数化与“家长不得通过普通中间件”的隔离</strong>：<code>auth.h:343-353</code>（<code>is_parent</code> 时直接 403），<code>auth.h:369-402</code>（家长专用中间件要求 <code>is_parent</code>），家长侧对象级授权有统一原语 <code>routes_parent.cpp:25-30</code>（<code>check_same_parent</code>）并在 6 个接口全部调用（<code>routes_parent.cpp:195,245,290,341,389,438</code>）——这是<strong>正确实现对象级授权的范例</strong>，可作为 B9 的改造模板。</li>
+<li><strong>敏感字段导出已脱敏</strong>：<code>routes_admin.cpp:1344-1355</code>（<code>// 安全修复 V7：导出接口不得泄露口令哈希</code>，只导出 id/username/role_id/name/className/points），同样 <code>routes_admin.cpp:1467-1470</code> 拒绝客户端提供的哈希、只接受明文并服务端哈希。</li>
+<li><strong>防提权修复确实到位（除过度修正外）</strong>：<code>routes_public.cpp:121-123</code>（开放注册强制 role_id=3）、<code>routes_admin.cpp:1472-1475</code>（导入拒绝非学生角色）、<code>routes_admin.cpp:803-811</code>（不能删除管理员用户）、<code>routes_admin.cpp:1071-1072,1107-1108</code>（内置权限/角色不可删除）。</li>
+<li><strong>异常细节不落响应体的意识</strong>：<code>routes_teacher.cpp:970-973</code>、<code>routes_admin.cpp:1679-1686</code>（<code>// 安全修复 V15：不向客户端回显内部异常细节</code>，异常只进 <code>Logger</code>）——意识是对的，只是覆盖面不足（见 B10）。</li>
+<li><strong>SHA256 实现本身正确</strong>：<code>sha256.h:12-89</code>（含填充长度计算 <code>blocks = (len+9+63)/64</code> 与 64 位大端长度域），我用 .NET SHA256 复算 <code>admin123</code>/<code>teacher123</code>/<code>student123</code>/<code>parent123</code> 与其种子哈希<strong>逐字节一致</strong>，可反向验证实现无误。</li>
+<li><strong>有些修复是有针对性的、带原因注释的</strong>：例如 <code>routes_public.cpp:301-303</code>（显式处理 <code>image_url</code> 为 NULL 以免 <code>value()</code> 抛 <code>type_error</code>）、<code>routes_teacher.cpp:38-43</code>（NULL 安全取值）、<code>sqlite_wrapper.h:25-27</code>（为并发引入 <code>busy_timeout</code>）、<code>routes_admin.cpp:1706</code>（参数化改造）——说明作者对“类型/NULL/注入”已有清晰的问题意识。</li>
+<li><strong>WAL 与索引</strong>：<code>sqlite_wrapper.h:27-29</code>（<code>busy_timeout=5000</code> + <code>journal_mode=WAL</code>，方向正确）、<code>main.cpp:203,216-222</code>（为 <code>parent_messages.student_id</code>、<code>sessions.user_id/expires_at</code>、<code>users.username/role_id</code>、<code>points_records.student_id</code>、<code>evaluations.student_id</code> 建索引），配合 <code>sqlite_wrapper.h:195-206</code> 的转义兜底，基础设施并不“野”。</li>
+<li><strong><code>Logger</code> 有轮转与级别</strong>（<code>logger.h:30-83</code>）、<code>logger.cpp:4-7</code> 静态成员定义规范；<code>models.cpp:1-5</code> 还记录了 <code>windows.h</code> 与 <code>std::byte</code> 二义性的包含顺序坑，属有价值的工程注释。</li>
+</ol>
+<hr>
+<h2 id="h-5-未验证-存疑事项-明确区分">5. 未验证 / 存疑事项（明确区分）</h2>
+<p><strong>已确认（有源码级证据，可直接复现判读）</strong>：B1、B2、B3、B4、B5、B6、B7、B8、B9、B10、B11（结论为“当前不可注入但属维护陷阱”）、B12、B13、B14、B15、B16、B17、B18、B19、B20、B21、B23、B24、B25、B26、B27、B28、B29、B30。</p>
+<p><strong>标注为疑似（🔶）</strong>：</p>
+<ul>
+<li><strong>B22 <code>localtime</code> 并发竞争</strong>：取决于此二进制所链接 CRT 是否为线程局部缓冲，我未运行程序故无法确证；建议按“有则修”处理（改 <code>localtime_s</code>）。</li>
+</ul>
+<p><strong>未验证（本轮范围外或需要运行/数据才能确认）</strong>：</p>
+<ol>
+<li><strong>运行时行为均未实测</strong>：为遵守“只读审计、不运行 server.exe”的约束，没有发起任何 HTTP 请求；B1 的“任意口令可登录”是<strong>静态推导</strong>（<code>password</code> 形参零引用是机械事实，推导链完整），但未做端到端验证。若需要，最小验证方式：用 <code>INSERT</code> 造一个 <code>pbkdf2$100000$&lt;salt&gt;$&lt;F(salt,iters)&gt;</code> 用户，再用错误口令登录，观察是否返回 200。</li>
+<li><strong><code>config.json</code> 之外是否有环境覆盖</strong>：未发现环境变量/命令行覆写配置的代码路径（<code>main.cpp:50</code> 只读 <code>config.json</code>），但若部署侧有外部脚本修改该文件（如把 <code>host</code> 改为 <code>0.0.0.0</code>），B4/B14 的远程可利用性会显著上升。</li>
+<li><strong>实际数据库文件状态</strong>：工作区顶层未发现 <code>campus_system.db</code>（可能已被 <code>.gitignore</code>/清理，或从未生成），因此<strong>无法核对库内现有 <code>password_hash</code> 是否为 <code>pbkdf2$</code> 格式</strong>，也无法确认 B1 的存量受影响账号数量；<code>server.log</code>（5MB）未逐行审计（只作为存在性证据）。</li>
+<li><strong>前端如何处理 HTTP 状态码/字段命名</strong>：B17 的后端侧结论已确认，但“前端因此出现哪一类具体故障”需要前端审计（frontend-auditor）交叉确认。</li>
+<li><strong><code>sqlite3.o</code> 实测编译选项</strong>：依据 <code>README.md:249</code> 的编译命令与 <code>sqlite3.c:14046-14052</code> 的默认值推断为 <code>SQLITE_THREADSAFE=1</code>（串行模式）；未通过 <code>PRAGMA compile_options</code> 实测（需运行程序）。</li>
+<li><strong>httplib 版本号</strong>：<code>httplib.h:44</code> 附近未取到 <code>CPPHTTPLIB_VERSION</code>（grep 未命中），因此 B10/B14 的框架行为以<strong>本仓库实际代码</strong>为准（已逐行引用），而非某个上游版本。</li>
+<li><strong>并发问题的实际复现概率</strong>：B5/B7/B8 的竞态窗口大小未做压测量化；理论上 8 线程 + 数百毫秒级 DB 操作窗口足够大，但未实测统计。</li>
+</ol>
+<hr>
+<h2 id="h-6-建议的改进优先级-严重度-修复成本">6. 建议的改进优先级（严重度 × 修复成本）</h2>
+<h3 id="h-批次-0-立刻-阻断级-当日">批次 0（立刻，阻断级，当日）</h3>
+<div class="tw"><table>
+<thead><tr><th>顺序</th><th>条目</th><th>理由</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>B1</strong></td><td>任意口令登录任何 pbkdf2 账号；一次正常登录即永久开后门</td><td>M</td></tr>
+<tr><td>2</td><td><strong>B2</strong></td><td>默认口令即管理员入口；与 B1 叠加成完整攻击链</td><td>S</td></tr>
+<tr><td>3</td><td><strong>B3 + B4</strong></td><td>登录锁定同时“可绕过”与“可武器化”；并发 UB 可能直接崩溃服务</td><td>S~M</td></tr>
+</tbody></table></div>
+<blockquote><p>批次 0 的三项建议一并做：修正 PBKDF2 → 强制口令重置 → 锁定逻辑加锁 + 去 XFF 信任 + 家长登录接入。</p></blockquote>
+<h3 id="h-批次-1-高优先-1-周内-数据正确性与越权">批次 1（高优先，1 周内，数据正确性与越权）</h3>
+<div class="tw"><table>
+<thead><tr><th>顺序</th><th>条目</th><th>理由</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>4</td><td><strong>B8</strong></td><td>会造成真实资损（双花/超卖），修法确定（原子 SQL + 行数语义）</td><td>S~M</td></tr>
+<tr><td>5</td><td><strong>B5 + B6</strong></td><td>影响所有请求的稳定性与身份正确性；B6 会直接串号</td><td>M</td></tr>
+<tr><td>6</td><td><strong>B9</strong></td><td>教师可改全校学生数据；有现成模板（<code>check_same_parent</code>）</td><td>M</td></tr>
+<tr><td>7</td><td><strong>B7</strong></td><td>全局事务会静默吞掉已返回成功的写入</td><td>M</td></tr>
+<tr><td>8</td><td><strong>B10</strong></td><td>无认证即可触发 500 + 异常文本泄露</td><td>S~M</td></tr>
+</tbody></table></div>
+<h3 id="h-批次-2-中优先-2-4-周-健壮性与契约">批次 2（中优先，2~4 周，健壮性与契约）</h3>
+<div class="tw"><table>
+<thead><tr><th>顺序</th><th>条目</th><th>理由</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>9</td><td><strong>B12 + B29</strong></td><td>错误可见性是后续所有排查的前提</td><td>M</td></tr>
+<tr><td>10</td><td><strong>B17 + B19</strong></td><td>统一响应与权限映射，降低后续改动风险</td><td>M</td></tr>
+<tr><td>11</td><td><strong>B13 + B14 + B11</strong></td><td>低成本高收益（备份判据、请求上限、会话 SQL）</td><td>S</td></tr>
+<tr><td>12</td><td><strong>B15 + B16 + B18</strong></td><td>数据源一致性（导入/ RBAC / 双写）</td><td>M</td></tr>
+<tr><td>13</td><td><strong>B21 + B20 + B24 + B25 + B26</strong></td><td>一批 S 级小修，建议合入同一 PR“低垂果实”</td><td>S</td></tr>
+</tbody></table></div>
+<h3 id="h-批次-3-低优先-与重构合并">批次 3（低优先，与重构合并）</h3>
+<ul>
+<li><strong>B23</strong>（thread_local 连接 + 会话归并 + N+1）建议与 B5/B7 的重构<strong>同批完成</strong>，因为都要动 <code>sqlite_wrapper.h</code> 与 <code>auth.h</code> 的访问模式；单独做收益有限、返工成本高。</li>
+<li><strong>B22</strong>（<code>localtime</code>）、<strong>B27</strong>（破坏性迁移）、<strong>B28</strong>（外键）、<strong>B30</strong>（日志轮转）为独立小修，可随时插入。</li>
+</ul>
+<h3 id="h-建议的落地顺序原则">建议的落地顺序原则</h3>
+<ol>
+<li><strong>先修“不可见”→“可见”</strong>：本报告中大量问题之所以危险，是因为失败被静默化（B12/B29/B10 的空白 catch、<code>std::cerr</code>、<code>empty()</code> 语义混用）。先把错误变成响亮，再改逻辑。</li>
+<li><strong>再修“正确性”→“性能”</strong>：B23 的并发模型改造与 B5/B7 同源，避免两次重构。</li>
+<li><strong>最后做契约统一</strong>：B17/B19 的机械替换量大但风险低，适合在有回归测试后成批执行。</li>
+<li><strong>每批都加“不变量测试”</strong>：积分不得为负、库存不得超卖、删除用户后索引仍自洽、任意错误口令不得登录 —— 这四条断言可覆盖本报告约 60% 的 high/blocker 条目。</li>
+</ol>
+<hr>
+<p><em>报告完。所有引用行号均已用 <code>read</code> 工具重新打开对应文件核对原文；机械统计类证据的执行命令见 §1.3。</em></p>
+  </main>
+</div>
+</body>
+</html>

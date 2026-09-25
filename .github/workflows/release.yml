@@ -48,7 +48,9 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        # F16：发布用 npm ci（严格按 package-lock.json 安装，不改写 lockfile）
+        # 与 ci.yml:35 保持一致 → 发布可复现
+        run: npm ci
 
       - name: Build frontend
         working-directory: frontend
@@ -105,9 +107,21 @@ jobs:
           cp -r frontend/dist release/frontend/dist
           # 运行时配置
           cp config.json release/
-          # 文档
+          # 文档：README 与 docs/ 下用户文档随官方包分发，但**排除 docs/audit/**（T31）
+          # 原因同 ci.yml：审计报告含已失效口令明文原像与未修复缺陷细节，且与本包内
+          # 「不存在固定/可预测默认口令」的口径自相矛盾；审计证据仅留在仓库。
           cp README.md release/
-          [ -d docs ] && cp -r docs release/ || true
+          if [ -d docs ]; then
+            mkdir -p release/docs
+            cp -r docs/. release/docs/
+            rm -rf release/docs/audit
+          fi
+          # 反向守卫：正式包内不得出现 docs/audit，任何回归立即失败
+          if [ -d release/docs/audit ]; then
+            echo "ERROR: 正式包内出现 docs/audit —— 打包排除回归"; exit 1
+          fi
+          echo "Docs packed (docs/audit excluded):"
+          ls -R release/docs | head -20
           # 版本信息
           echo "${{ steps.ver.outputs.tag }}" > release/VERSION.txt
           echo "Build: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
@@ -154,17 +168,20 @@ jobs:
           - `frontend/dist/` — Vite + Vue 3 SFC 构建产物（5 个 HTML 入口 + hashed assets）
           - `config.json` — 运行时配置
           - `README.md` — 项目文档
-          - `docs/` — 用户手册
+          - `docs/` — 用户手册与安装说明（**不含** `docs/audit/`：审计报告与证据不随包分发）
 
           ## 快速开始
           1. 解压 zip 到任意目录
           2. 命令行运行 `server.exe` 启动服务
           3. 浏览器访问 `http://localhost:8080`
 
-          ## 默认账号
-          - 管理员：`admin` / `admin123`
-          - 教师：`teacher` / `teacher123`
-          - 学生：`student` / `student123`
+          ## 初始账号与初始口令（安全修复 V18 / B2 + F13）
+          - 首次启动时，`server.exe` 会在**控制台输出每个内置账号（admin / teacher / student / parent）的随机初始口令**，
+            并标记这些账号「首次登录必须修改口令」。
+          - 请复制控制台提示的初始口令登录，登录后系统会**强制要求先修改口令**，改密成功后才能使用其他功能。
+          - 初始口令**只打印一次**、不写入任何文件；请自行妥善保管。本项目**不再提供固定默认口令**。
+          - 若丢失初始口令：删除数据目录下的 `campus_system.db`（见 `config.json` 的 `database.path`）后重启，
+            系统会重新生成随机初始口令（**会清空全部数据**）。
 
           ## 运行环境
           - Windows 10/11（64 位）

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>代码质量评估总览 — 校园能量站代码质量评估</title>
+<style>
+:root{--bg:#f7f8fa;--panel:#fff;--ink:#1f2328;--muted:#5a6572;--line:#e3e6ea;--accent:#0f766e;
+--blocker:#b91c1c;--high:#c2410c;--med:#a16207;--low:#4b5563;--code-bg:#f3f4f6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+.wrap{display:flex;max-width:1500px;margin:0 auto;gap:0;align-items:flex-start}
+aside{position:sticky;top:0;height:100vh;overflow-y:auto;flex:0 0 280px;background:#0f172a;color:#cbd5e1;padding:24px 18px}
+aside h1{font-size:15px;color:#fff;margin:0 0 4px;letter-spacing:.02em}
+aside .sub{font-size:12px;color:#94a3b8;margin-bottom:20px;line-height:1.5}
+aside nav a{display:block;color:#cbd5e1;text-decoration:none;font-size:13.5px;padding:7px 10px;border-radius:7px;margin-bottom:3px}
+aside nav a:hover{background:#1e293b;color:#fff}
+aside nav a.active{background:var(--accent);color:#fff;font-weight:600}
+aside .toc{border-top:1px solid #1e293b;margin-top:18px;padding-top:14px}
+aside .toc .h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:8px}
+aside .toc a{display:block;color:#94a3b8;text-decoration:none;font-size:12.5px;padding:4px 10px;border-left:2px solid #1e293b;line-height:1.45}
+aside .toc a:hover{color:#fff;border-left-color:var(--accent)}
+main{flex:1 1 auto;min-width:0;background:var(--panel);padding:48px 60px 96px;min-height:100vh}
+.meta{font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:32px}
+h1{font-size:30px;margin:0 0 10px;letter-spacing:-.01em}
+h2{font-size:22px;margin:44px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:none}
+h3{font-size:17.5px;margin:28px 0 10px}
+h4{font-size:15.5px;margin:20px 0 8px;color:var(--muted)}
+p{margin:12px 0}
+a{color:#0e7490}
+ul,ol{margin:12px 0;padding-left:26px}
+li{margin:5px 0}
+code{background:var(--code-bg);padding:2px 6px;border-radius:5px;font-size:13.5px;
+font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Code",monospace;color:#0f172a}
+pre.code{background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:10px;overflow-x:auto;margin:16px 0;
+font-size:13.5px;line-height:1.6}
+pre.code code{background:none;color:inherit;padding:0;font-size:inherit}
+blockquote{margin:18px 0;padding:14px 20px;background:#f0fdfa;border-left:4px solid var(--accent);border-radius:0 8px 8px 0;color:#134e4a}
+blockquote blockquote{margin:8px 0}
+blockquote.callout{background:#fef2f2;border-left-color:var(--blocker)}
+blockquote.callout .callout-big{font-size:18px;font-weight:700;color:var(--blocker);margin:0;line-height:1.5}
+hr{border:none;border-top:1px solid var(--line);margin:36px 0}
+.tw{overflow-x:auto;margin:18px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:#f1f5f9;font-weight:600;white-space:nowrap}
+tr:nth-child(even) td{background:#fafbfc}
+strong{color:#0b1220}
+@media print{
+  aside{display:none}
+  body{background:#fff}
+  main{padding:0;max-width:100%}
+  pre.code{background:#f5f5f5;color:#111;border:1px solid #ddd}
+  h2{page-break-after:avoid}
+  .tw,table,pre.code,blockquote{page-break-inside:avoid}
+}
+@media(max-width:900px){.wrap{flex-direction:column}aside{position:static;height:auto;width:100%;flex:none}main{padding:28px 20px 64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <h1>校园能量站 · 代码质量评估</h1>
+    <div class="sub">只读审计 · 未改动任何源码<br>2026-09-12</div>
+    <nav>
+      <a href="CODE_QUALITY_SUMMARY.html" class="active">代码质量评估总览</a>
+      <a href="CODE_QUALITY_REVIEW.html">代码质量改进建议书（主交付物）</a>
+      <a href="VERIFICATION.html">独立复核报告</a>
+      <a href="BACKEND_FINDINGS.html">后端 C++ 审计</a>
+      <a href="FRONTEND_FINDINGS.html">前端 Vue3/TS 审计</a>
+    </nav>
+    <div class="toc">
+      <div class="h">本页目录</div>
+      <a class="l2" href="#h-一-一段话结论">一、一段话结论</a>
+        <a class="l2" href="#h-二-关键数字">二、关键数字</a>
+        <a class="l2" href="#h-三-批次-0-立刻要做的-10-条-低风险高收益">三、批次 0：立刻要做的 10 条（低风险高收益）</a>
+        <a class="l2" href="#h-四-两个-blocker-详解">四、两个 blocker 详解</a>
+        <a class="l2" href="#h-五-high-级发现-14-条">五、high 级发现（14 条）</a>
+        <a class="l2" href="#h-六-medium-low-级要点-按主题归类">六、medium / low 级要点（按主题归类）</a>
+        <a class="l2" href="#h-七-仓库卫生">七、仓库卫生</a>
+        <a class="l2" href="#h-八-值得保留的优点-14-项-均有行号依据">八、值得保留的优点（14 项，均有行号依据）</a>
+        <a class="l2" href="#h-九-路线图-四批-含硬依赖">九、路线图（四批，含硬依赖）</a>
+        <a class="l2" href="#h-十-本次审计的局限-务必一并阅读">十、本次审计的局限（务必一并阅读）</a>
+        <a class="l2" href="#h-十一-底层报告勘误-14-行-冲突时以-verification-md-为准">十一、底层报告勘误（14 行，冲突时以 `VERIFICATION.md` 为准）</a>
+        <a class="l2" href="#h-十二-支撑文档导航">十二、支撑文档导航</a>
+        <a class="l2" href="#h-十三-底线声明">十三、底线声明</a>
+    </div>
+  </aside>
+  <main>
+    <div class="meta">源文件 <code>CODE_QUALITY_SUMMARY.md</code> · 312 行 · 21,962 字节 · 共 13 个章节</div>
+    <h1 id="h-校园能量站-代码质量评估总览">校园能量站 — 代码质量评估总览</h1>
+<blockquote><p><strong>本文档是阅读入口。</strong> 详细论证在四份支撑文档中，本文只做整理与导航。 评估方式：<strong>只读审计，未改动任何源码、配置或构建产物。</strong> 评估日期：2026-09-12</p></blockquote>
+<hr>
+<h2 id="h-一-一段话结论">一、一段话结论</h2>
+<p>这个项目的<strong>工程惯例其实已经具备</strong>：接口参数化查询已成主流、CSRF 双重提交 Cookie 设计正确、会话 ID 用 CSPRNG、登录失败锁定、CORS 与 Cookie 属性都处理过、CI 会跑前端类型检查与后端编译冒烟、GitHub Pages/Release 两套发布链路分开。<strong>它不是"写得很乱"的项目，问题也不在整洁度上。</strong></p>
+<p><strong>真正的短板集中在两层：</strong></p>
+<ol>
+<li><strong>密码学实现层</strong>——一处 PBKDF2 实现错误，直接导致完整认证绕过（B1）。</li>
+<li><strong>交付与可观测性链路</strong>——CI 打的"开发版"包里前端是 mock 构建，与同包的 <code>server.exe</code> 永远不通信（F1）；后端绝大多数业务错误以 HTTP 200 返回，而前端只在 401/403/429 上做了处理，中间完全静默（F2）。</li>
+</ol>
+<p>一句话：<strong>该有的意识都有，但缺"证明它是对的"的手段</strong>——0 个测试文件是关键放大器。B1 这种错误，一个标准向量测试就能拦住。</p>
+<hr>
+<h2 id="h-二-关键数字">二、关键数字</h2>
+<div class="tw"><table>
+<thead><tr><th>项目</th><th>数值</th></tr></thead>
+<tbody>
+<tr><td>审计范围</td><td>后端自研 18 文件 / 6,084 行；前端 src 34 文件 / 9,513 行；workflow 3 个 → <strong>约 15,600 行自研代码</strong></td></tr>
+<tr><td>发现总数</td><td><strong>60 条</strong> = 底层报告 54 条（后端 30 + 前端 24）+ 验证阶段新增 6 条</td></tr>
+<tr><td>严重度分布</td><td><strong>blocker 2 / high 14 / medium 23 / low 21</strong></td></tr>
+<tr><td>复核裁定</td><td>CONFIRMED 35 / PARTIAL 3 / <strong>REFUTED 0</strong> / UNVERIFIABLE 主要项 0</td></tr>
+<tr><td>证据密度</td><td>主报告含 <strong>164 处互不相同的 <code>文件:行号</code> 引用</strong>（本次重新机械核对所得）</td></tr>
+<tr><td>测试文件</td><td><strong>0 个</strong>（<code>tests/</code> 被 <code>.gitignore</code> 排除）</td></tr>
+<tr><td>类型检查</td><td><code>npm run typecheck</code> = <strong>exit 0 / 0 错误</strong></td></tr>
+<tr><td>源码改动</td><td><strong>0</strong>（<code>git diff HEAD</code> 为空）</td></tr>
+</tbody></table></div>
+<p>排除项：<code>httplib.h</code>、<code>json.hpp</code>、<code>sqlite3.c/h</code>、<code>vcpkg/</code> 等第三方 vendored 文件未审计。</p>
+<hr>
+<h2 id="h-三-批次-0-立刻要做的-10-条-低风险高收益">三、批次 0：立刻要做的 10 条（低风险高收益）</h2>
+<p>预计消除 <strong>2 blocker + 2 high + 5 medium/low</strong>。</p>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>条目</th><th>位置</th><th>动作</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>B1</strong> 认证绕过</td><td><code>sha256.h:94-148</code></td><td>重写 PBKDF2，HMAC 的 <strong>key 必须是 password</strong>；<strong>前置：先补 RFC 6070 标准向量测试</strong></td><td>M</td></tr>
+<tr><td>2</td><td><strong>F1</strong> 交付包错配</td><td><code>ci.yml:44</code> → <code>:117/:123</code></td><td>拆开 mock 构建与发布打包链路</td><td>S</td></tr>
+<tr><td>3</td><td><strong>B13</strong> 备份判据写反</td><td><code>routes_admin.cpp:335-349</code></td><td><code>VACUUM INTO</code> 不返回行，改用 <code>execute()</code> 而非 <code>query()</code> 判成败</td><td>S</td></tr>
+<tr><td>4</td><td><strong>N1</strong> Cookie 永远带 <code>Secure</code></td><td><code>config.h:84</code> + <code>main.cpp:312-315</code></td><td>HTTPS 回退到明文 HTTP 时复位 <code>cookie_secure</code></td><td>S</td></tr>
+<tr><td>5</td><td><strong>F24</strong> 无效请求头</td><td><code>api.ts:73-76</code></td><td>删掉两行 <code>Content-Length</code>（浏览器 forbidden header，永不生效）</td><td>S</td></tr>
+<tr><td>6</td><td><strong>F16</strong> 发布不可复现</td><td><code>release.yml:51</code></td><td><code>npm install</code> → <code>npm ci</code></td><td>S</td></tr>
+<tr><td>7</td><td><strong>B2</strong> 种子默认口令</td><td><code>main.cpp:250-254</code></td><td>随机初始口令 + 强制首登改密</td><td>M</td></tr>
+<tr><td>8</td><td><strong>F4</strong> 评价列恒"未评价"</td><td><code>TeacherApp.vue:61/169/635</code></td><td>删假数据，改接 <code>routes_teacher.cpp:728</code>（<strong>复数端点</strong>）</td><td>M</td></tr>
+<tr><td>9</td><td><strong>B6</strong> erase 后索引错位</td><td><code>models.cpp:206-211</code></td><td>erase 后清空并重建索引</td><td>S</td></tr>
+<tr><td>10</td><td><strong>N4</strong> <code>.trae/</code> 误入库</td><td>仓库</td><td><code>git rm --cached</code> 25 个文件（<code>.gitignore</code> 已列但已跟踪）</td><td>S</td></tr>
+</tbody></table></div>
+<h3 id="h-安全类硬绑定-本轮唯一顺序强约束">⚠️ 安全类硬绑定（本轮唯一顺序强约束）</h3>
+<blockquote><p><strong>必须先把 B1 修好，再去改默认口令。</strong> <strong>"改密码"在 B1 存在时根本救不了场</strong>——B1 下改密写入的仍是与口令无关的坏哈希，任意口令照样能登录。</p></blockquote>
+<p>四步顺序：<strong>修 B1（含补 RFC 6070 向量）→ 修 B2 → F13 随 B2 一并处置 → F13 + B2 与 B1 同批完成，不得推迟。</strong> <code>F13</code> 严重度 low，但 <strong>low ≠ 可延后</strong>。</p>
+<hr>
+<h2 id="h-四-两个-blocker-详解">四、两个 blocker 详解</h2>
+<h3 id="h-b1-pbkdf2-完整认证绕过">B1 — PBKDF2 完整认证绕过 🔴</h3>
+<p><strong>位置：<code>sha256.h:94-148</code></strong></p>
+<p><code>pbkdf2_sha256(password, salt, iters)</code> 的 <code>password</code> 形参<strong>在函数体内零引用</strong>：</p>
+<ul>
+<li>HMAC 密钥取自 <strong>salt</strong>（<code>:101-108</code>，<code>k_ipad</code>/<code>k_opad</code> 由 salt 填充）</li>
+<li>HMAC 消息体也<strong>只拼 salt</strong>（<code>:114-118</code> <code>msg.append(salt)</code>）</li>
+<li>迭代段（<code>:129-142</code>）只用 <code>u</code> 与 <code>k_opad</code></li>
+</ul>
+<p><strong>机械验证</strong>（三个验证者各自独立复现）：</p>
+<pre class="code" data-lang="powershell"><code>$lines = Get-Content sha256.h
+($lines[94..147] | Select-String 'password').Count   # → 0</code></pre>
+<p><strong>因此</strong>：派生值只由 <code>(salt, iters)</code> 决定，与口令完全无关。而 <code>verify_password</code>（<code>sha256.h:169-188</code>）用存储串里的 salt/iters 重算<strong>同一个函数</strong>，再与 <code>dk</code> 比较 → <strong><code>calc == dk</code> 恒真</strong> → 对任何 <code>pbkdf2$</code> 格式哈希，<strong>任意口令都通过</strong>。</p>
+<p><strong>提权链（<code>routes_public.cpp:45-51</code>）</strong>：校验通过且哈希非 <code>pbkdf2$</code> 前缀时，就地用 <code>hash_password(password)</code> 重写并落库。</p>
+<p><strong>现实可达性（确定判断，非猜测）</strong>：</p>
+<div class="tw"><table>
+<thead><tr><th>状态</th><th>依据</th></tr></thead>
+<tbody>
+<tr><td>工作区<strong>不存在任何数据库文件</strong></td><td><code>Test-Path</code> False + 全递归扫描为空 + <code>glob</code> No files found（三路交叉验证）</td></tr>
+<tr><td>→ <strong>后门此刻未武装</strong></td><td>种子账号当前是裸 SHA256，走 <code>sha256.h:187</code> 正确分支</td></tr>
+<tr><td>→ <strong>首次成功登录即永久打开</strong></td><td><code>routes_public.cpp:47-51</code> 把该账号改写成坏哈希</td></tr>
+</tbody></table></div>
+<p><strong>影响面：9 处 <code>hash_password</code> 调用点</strong>全部产生坏哈希——<code>routes_public.cpp:48</code>（升级链自身）、<code>routes_public.cpp:159</code>、<code>routes_admin.cpp:514/626/880/1470/1491</code>、<code>routes_teacher.cpp:136/946</code>。</p>
+<p><strong>最小修复</strong>：标准 PBKDF2 是 <code>U1 = PRF(P, salt || INT32BE(i))</code>，即 <strong>HMAC 的 key 必须是 password</strong>。 <strong>前置依赖</strong>：先补 RFC 6070 标准测试向量，否则改完仍无法自证正确。</p>
+<hr>
+<h3 id="h-f1-ci-交付包前后端错配">F1 — CI 交付包前后端错配 🔴</h3>
+<p><strong>位置：<code>ci.yml:44</code> → <code>:117/:123</code></strong></p>
+<ol>
+<li><code>ci.yml:44</code> 构建前端时设 <code>VITE_USE_MOCK: 'true'</code></li>
+<li><code>ci.yml:57</code> 该 dist 上传为 artifact <code>frontend-dist</code></li>
+<li><code>ci.yml:117</code> package job 下载 <code>frontend-dist</code>，<code>:123</code> 下载 <code>server-exe</code>，<code>:135-140</code> 打成同一个 zip</li>
+</ol>
+<p><strong>后果</strong>：开发版交付包的前端只读写 localStorage，<strong>真实后端永远收不到请求</strong>。</p>
+<p><strong>对照（避免误判为"全都坏了"）</strong>：</p>
+<ul>
+<li><code>release.yml</code> 未设该变量 → <strong>正式发布包不含 mock</strong>（tree-shaking 生效，属优点）</li>
+<li><code>pages.yml:45</code> 设为 true → GitHub Pages 纯前端 Demo，<strong>属有意为之，不是缺陷</strong></li>
+</ul>
+<hr>
+<h3 id="h-b1-f1-交叉结论-本轮最有价值的一条">🔑 B1 × F1 交叉结论（本轮最有价值的一条）</h3>
+<blockquote class="callout"><p class="callout-big">不得用 F1 的存在降低 B1 的紧急度；修复顺序 B1 先于 F1。</p></blockquote>
+<p><strong>理由</strong>：开发版因前端走 Mock 而<strong>不触发</strong> B1 的升级链——这是<strong>两个缺陷相互掩盖</strong>，不是任何一层被修好了。正式发布包（真实前端）一旦有人用 <code>admin/admin123</code> 登录，B1 <strong>立即永久生效</strong>。</p>
+<hr>
+<h2 id="h-五-high-级发现-14-条">五、high 级发现（14 条）</h2>
+<div class="tw"><table>
+<thead><tr><th>id</th><th>位置</th><th>问题</th></tr></thead>
+<tbody>
+<tr><td><strong>B3–B4</strong></td><td><code>routes_teacher.cpp:340</code>、<code>routes_admin.cpp:1602</code> 等</td><td>全局容器竞态：8 线程共享无锁容器</td></tr>
+<tr><td><strong>B5</strong></td><td><code>routes_public.cpp:325→381</code></td><td><code>find_user_by_id</code> 返回的 <code>User*</code> 在并发 <code>push_back</code> 后<strong>悬垂</strong>，写已释放内存</td></tr>
+<tr><td><strong>B6</strong></td><td><code>models.cpp:206-211</code> + <code>routes_teacher.cpp:259</code></td><td><code>users.erase</code> 后下标错位 → <strong>返回错误用户</strong></td></tr>
+<tr><td><strong>B7</strong></td><td><code>routes_admin.cpp:1453/1665/1686</code></td><td>单连接上 <code>BEGIN/COMMIT/ROLLBACK</code> 是<strong>连接级全局事务</strong>，会吞掉/回滚其他线程已返回成功的写入</td></tr>
+<tr><td><strong>B8</strong></td><td><code>routes_public.cpp:360-385</code> + <code>models.cpp:93-97</code></td><td>读-改-写<strong>双花/超卖</strong>；<code>execute_bind</code> 无法区分 0 行受影响（<code>sqlite_wrapper.h:145-147</code>）→ "不存在则 404"分支系统性失效</td></tr>
+<tr><td><strong>B9</strong></td><td><code>routes_public.cpp:29/30/39/53/59</code> → <code>auth.h:111-114</code></td><td><strong>登录锁定数据竞争已可达</strong>：8 线程读写无锁 <code>static std::map</code></td></tr>
+<tr><td><strong>B10</strong></td><td><code>auth.h:141-154</code></td><td>锁定键信任客户端 <code>X-Forwarded-For</code>，且 httplib 从不设 <code>REMOTE_ADDR</code> → 键退化为 `unknown\</td><td>&lt;user&gt;`，<strong>可伪造绕过</strong></td></tr>
+<tr><td><strong>F2</strong></td><td><code>api.ts:103-126</code></td><td>后端 500 带合法 JSON 体，但前端只分支 401/403/429 → <strong>完全静默</strong>；全项目 <strong>58 处</strong> <code>res.code</code> 判据依赖"非 200 必有提示"这一不成立假设；<code>catch { /* api 层已提示 */ }</code> <strong>7 处</strong>（含 <code>StudentApp.vue:240</code>）注释与事实不符</td></tr>
+<tr><td><strong>F3</strong></td><td><code>AdminApp.vue</code> 等</td><td>巨型组件：AdminApp <strong>2,626 行</strong>（script 1,237 / template 1,263 / style 124；54 个 <code>ref</code>、10 个 <code>computed</code>、26 个 API 调用点、12 个 <code>BaseModal</code>、7 个 tab）</td></tr>
+<tr><td><strong>F4</strong></td><td><code>TeacherApp.vue:61/169-170/635</code></td><td>评价列<strong>对所有学生恒显示"未评价"</strong>（详见下方六-1）</td></tr>
+<tr><td><strong>F5</strong></td><td><code>tsconfig.json</code></td><td>严格度不足：开 <code>noUnusedLocals/noUnusedParameters</code> → <strong>7 错误</strong>；开 <code>noUncheckedIndexedAccess</code> → <strong>19 错误</strong>；三项全开 → <strong>26 错误</strong></td></tr>
+<tr><td><strong>N2</strong></td><td><code>models.cpp:112-160</code> + <code>:79</code></td><td>并发建号<strong>生成相同 ID</strong>，<code>INSERT OR REPLACE</code> <strong>静默覆盖</strong>已有用户（数据丢失）。由验证阶段新增</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="h-六-medium-low-级要点-按主题归类">六、medium / low 级要点（按主题归类）</h2>
+<h3 id="h-1-f4-教师端评价展示是-永久假数据-high">1. F4 — 教师端评价展示是"永久假数据"（high）</h3>
+<div class="tw"><table>
+<thead><tr><th>环节</th><th>位置</th><th>事实</th></tr></thead>
+<tbody>
+<tr><td>列类型</td><td><code>main.cpp:80</code></td><td><strong><code>id TEXT PRIMARY KEY</code></strong></td></tr>
+<tr><td>种子值</td><td><code>main.cpp:251-254</code></td><td><code>admin-01</code>、<code>student-02-01-01</code> 等<strong>字符串</strong></td></tr>
+<tr><td>后端返回</td><td><code>routes_teacher.cpp:89</code></td><td><code>user.id</code> → 运行时是<strong>字符串</strong></td></tr>
+<tr><td>前端声明</td><td><code>TeacherApp.vue:61</code></td><td><code>Evaluation.studentId: number</code></td></tr>
+<tr><td>常量</td><td><code>TeacherApp.vue:169-170</code></td><td><code>studentId: 1</code>（<strong>number</strong>）</td></tr>
+<tr><td>查找</td><td><code>TeacherApp.vue:635</code></td><td><code>e.studentId === studentId</code> <strong>严格相等</strong></td></tr>
+</tbody></table></div>
+<p><code>1 === "student-02-01-01"</code> <strong>恒为 false</strong> → 85/90 是<strong>不可达死数据</strong>，5 个维度对<strong>所有</strong>学生一律走 <code>v-else</code> 显示"未评价"。真实评价 POST 会落库，但前端<strong>没有任何读回路径</strong>。</p>
+<p><code>loadEvaluations()</code> 的注释自认其性质：</p>
+<blockquote><p><code>// 实际未使用返回值。此处保留 API 调用以维持网络行为。</code></p></blockquote>
+<p><strong>已排查其余模块，未发现同类失配</strong>（4 组扫描：类型声明 / <code>Number()</code>·<code>parseInt()</code> / <code>===</code> 与 id 比较 / id 参与算术或下标，最后一组零命中）。最有力反例是 <code>ParentApp.vue</code>：<strong>同一个"选中子项"的活儿却做对了</strong>（<code>ChildSummary.id: string</code> <code>:21</code>、<code>currentChildId = ref&lt;string | null&gt;</code> <code>:77</code>）。</p>
+<blockquote><p>与 <code>N2</code> 的关系：同属"id 是 TEXT 却按整数处理"的根因类别，但<strong>在不同层、相互独立、修一处不能修另一处</strong>。</p></blockquote>
+<h3 id="h-2-安全与鉴权-medium">2. 安全与鉴权（medium）</h3>
+<ul>
+<li><strong>B11</strong> <code>auth.h:242-266, 272</code>：会话 SQL 仍用 <code>snprintf</code> 拼接，同文件 <code>:190-237</code> 已参数化且注释写着"不应拼接"。<strong>经确认当前不可注入</strong>（<code>escapeString</code> 有效），属<strong>模板污染式维护隐患</strong> + <code>char[1024/256/128]</code> 静默截断（prepare 失败 → 空数组 → 被当成未登录/登出静默失效）。<strong>范围仅 3 处 <code>snprintf</code>、2 处 <code>escapeString</code>。</strong></li>
+<li><strong>N1</strong> <code>config.h:84</code> + <code>main.cpp:312-315</code>：HTTPS 回退到明文 HTTP 时<strong>不复位 <code>cookie_secure</code></strong> → 三处 Cookie 都带 <code>Secure</code>（<code>auth.h:88/95/174</code>）→ 浏览器在 http 下拒不保存 <code>sid</code> → <strong>登录静默失效</strong>。触发：<code>config.json</code> 的 <code>https.enabled</code> 设为 true。</li>
+<li><strong>F17</strong> <code>xlsx 0.18.5</code>：版本匹配 <strong>CVE-2023-30533 / CVE-2024-22363</strong>，无更高修复版 → 建议<strong>替换评估</strong>而非"升级版本"。（本机 <code>npm audit</code> 不可用：镜像未实现 advisories 接口）</li>
+<li><strong>F13</strong> <code>Login.vue:181-208</code>：四个 demo 按钮 <code>fillTestAccount('admin','admin123')</code> 等。<strong>不是前端注入或鉴权绕过</strong>——它只是<strong>填入</strong>表单。真问题是"产品内置可预测默认凭据 + <strong>无强制改密/首启轮换机制</strong>"。作为独立发现定 <strong>low</strong>，危害完全由 B2 承载，<strong>单修 F13 收益≈0</strong>。</li>
+</ul>
+<h3 id="h-3-数据一致与性能-medium">3. 数据一致与性能（medium）</h3>
+<ul>
+<li><strong>N3</strong>：<strong>全站无服务端分页</strong>——全仓仅 3 处 <code>LIMIT</code>（<code>routes_admin.cpp:386</code> 的 <code>LIMIT 10</code> + 两处 <code>LIMIT 1</code> 存在性检查），而前端有 <code>Pagination.vue</code>/<code>usePagination.ts</code> → <strong>客户端分页撑全量载荷</strong>，<code>/api/admin/users</code>、<code>/api/admin/export</code> 随数据量无界增长。</li>
+<li><strong>N5</strong>：<code>points_records</code> <strong>从不回载</strong>——唯一 loader（<code>models.cpp:58</code>）只加载 users → 重启后 <code>/api/admin/export</code>（<code>routes_admin.cpp:1388-1399</code>）导出<strong>空数组</strong>；且 <code>new_record_id = points_records.size()+1</code>（<code>routes_teacher.cpp:331</code>）每次重启从 1 重号 → <strong>双数据源不一致</strong>。</li>
+<li><strong>N5'</strong>：<code>.map</code> 文件可被静态服务暴露。</li>
+<li><strong>B12/B14</strong>：未调用 <code>set_payload_max_length</code> / <code>set_read_timeout</code> / <code>set_error_handler</code>（<code>grep</code> 零命中）→ 请求体无上限、无读超时。</li>
+</ul>
+<h3 id="h-4-错误处理与响应封装-medium">4. 错误处理与响应封装（medium）</h3>
+<ul>
+<li><strong>B17</strong>：<strong>16 处</strong> <code>res.status=</code> vs <strong>217 处</strong> <code>{"code",N}</code> → 绝大多数业务错误以 <strong>HTTP 200</strong> 返回，而前端据此判断的假设不成立。</li>
+<li><strong>B12</strong>：<code>sqlite_wrapper.h:53, 151</code> — <code>query()</code>/<code>query_bind()</code> 在 prepare 失败时返回<strong>空 <code>json::array()</code></strong>，调用方无法区分"无数据"与"SQL 失败"。</li>
+<li><strong>B13</strong> 见批次 0。</li>
+</ul>
+<h3 id="h-5-前端可维护性-medium-low">5. 前端可维护性（medium / low）</h3>
+<ul>
+<li>巨型组件：AdminApp <strong>2,626 行</strong>、TeacherApp <strong>1,519 行</strong>、ParentApp 793 行、StudentApp 731 行。</li>
+<li>死代码：<code>usePagination.ts</code> <strong>整文件零引用</strong>，另有 7 个零引用导出（共 8 处）；<code>N6</code> <code>main.ts:24-26</code> 的 <code>globalProperties.$format*</code> 注册同样零使用。</li>
+<li>重复实现：分页派生值在 Admin（<strong>两套</strong>）/Teacher 手写 <strong>12 个 <code>computed</code></strong>；错误样板 24 处、<code>try</code> 块 68 处。</li>
+<li>TeacherApp：<code>:161-171</code> 硬编码假评价数据、<code>:313-321</code> 空转 API、<code>:664-683</code> 两个"开发中"死按钮。</li>
+<li><strong>F7</strong> 见上「死代码」。</li>
+<li><strong>F24</strong> <code>api.ts:73-76</code>：<code>Content-Length</code> 属浏览器 <strong>forbidden request header</strong>，<code>Headers.set</code> 对其<strong>静默忽略、不抛异常、无警告</strong>（依据 MDN，经 <code>web_fetch</code> 核实）。→ 该行在浏览器中<strong>永不生效</strong>（无害但无效的死代码）；Node/undici 侧反而保留。</li>
+<li>依赖体积：echarts 全量 <code>import * as echarts</code>（<code>useChart.ts:10</code>）约 <strong>1.0 MB</strong> + xlsx 816 KB + pinyin 316 KB 静态引入；字体 4.72 MB + FontAwesome 999 KB。</li>
+</ul>
+<h3 id="h-6-工程化缺口-high-级影响">6. 工程化缺口（high 级影响）</h3>
+<ul>
+<li><strong>0 个测试文件</strong>，<code>package.json</code> 无 <code>test</code> 脚本、无 eslint / prettier。</li>
+<li>CI 门禁<strong>真实存在且有效</strong>（<code>ci.yml:37-39</code> 确实跑 <code>typecheck</code>），构建用 <code>build:no-typecheck</code> <strong>不构成漏洞</strong>（同 job 已跑类型检查）。</li>
+<li><strong>F16</strong> <code>release.yml:51</code> 用 <code>npm install</code>（可改写 lockfile）→ <strong>发布不可复现</strong>。</li>
+<li><strong>N4</strong> <code>.trae/</code> 已被 <code>.gitignore</code> 列出，但 <strong>25 个文件仍被跟踪</strong>（先提交后加 ignore 的典型后果）。</li>
+</ul>
+<hr>
+<h2 id="h-七-仓库卫生">七、仓库卫生</h2>
+<div class="tw"><table>
+<thead><tr><th>项</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td><code>.gitignore</code> 覆盖编译产物、日志、数据库、凭据文件</td><td>✅ 设计正确</td></tr>
+<tr><td>编译产物（<code>*.o</code>/<code>*.exe</code>/<code>*.log</code>）是否入库</td><td>✅ <strong>已正确排除</strong>（工作区有 <code>main.o</code> 等，但 <code>git ls-files</code> 零命中）</td></tr>
+<tr><td><code>.trae/</code></td><td>❌ 25 个文件被跟踪（N4）</td></tr>
+<tr><td>前端字体子集</td><td>⚠️ 107 个 woff2 + <code>fonts.css</code>（113 KB）纳入版本库，属生成产物</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="h-八-值得保留的优点-14-项-均有行号依据">八、值得保留的优点（14 项，均有行号依据）</h2>
+<ol>
+<li><strong>静态路径穿越已正确防护</strong> —— <code>httplib.h:3116</code> 服务端 percent-decode，<code>routes_static.cpp:14-23</code> 拒绝任何解码后含 <code>..</code> 的路径 → <code>%2e%2e</code> 不可绕过</li>
+<li><strong>日志不含敏感信息</strong> —— 所有 <code>Logger::*</code> 无 password/token/session_id/csrf/body；<code>log_request</code>（<code>auth.h:54-57</code>）只记 method+path</li>
+<li><strong><code>/api/admin/export</code> 不泄露口令哈希</strong> —— <code>routes_admin.cpp:1347-1354</code> 显式只取 6 个非敏感字段</li>
+<li><strong>全仓库无 <code>SELECT *</code></strong></li>
+<li><strong>参数化查询已成主流</strong> —— <code>query_bind</code>/<code>execute_bind</code> 广泛使用，遗留拼接仅 3 处</li>
+<li><strong>CSRF 双重提交 Cookie 设计正确</strong> —— token 同时经 JSON body 返回（<code>routes_public.cpp:84</code>、<code>routes_parent.cpp:120</code>），HttpOnly 不构成问题</li>
+<li><strong><code>Set-Cookie</code> 多值正确</strong> —— <code>httplib.h:195</code> 是 <code>std::multimap</code>，<code>set_header</code> 用 <code>emplace</code>，两个 Cookie 都保留</li>
+<li><strong>会话 ID 用 CSPRNG</strong> —— <code>sha256.h:151-158</code> <code>std::random_device</code>，经二进制取证确认为 CSPRNG</li>
+<li><strong>口令哈希有 per-user 随机盐 + 100000 迭代</strong> —— <code>sha256.h:162-166</code>（问题是算法实现，不是没加盐）</li>
+<li><strong>登录失败锁定机制存在</strong> —— <code>auth.h:117-139</code>（问题是并发安全与 IP 信任，不是没做）</li>
+<li><strong>正式发布包不含 mock</strong> —— tree-shaking 生效</li>
+<li><strong><code>npm run typecheck</code> = exit 0 / 0 错误</strong></li>
+<li><strong>CI 门禁真实有效</strong> + 后端编译冒烟与 release 同源</li>
+<li><strong>前端工程结构合理</strong> —— 多入口配置、统一 <code>apiRequest</code> 封装、mock 与真实后端同构、composables 抽取</li>
+</ol>
+<hr>
+<h2 id="h-九-路线图-四批-含硬依赖">九、路线图（四批，含硬依赖）</h2>
+<div class="tw"><table>
+<thead><tr><th>批次</th><th>内容</th><th>条目</th></tr></thead>
+<tbody>
+<tr><td><strong>批次 0</strong></td><td>高风险低成本，可立即做</td><td>B1, F1, B13, N1, F24, F16, B2, F4, B6, N4（见第三节）</td></tr>
+<tr><td><strong>批次 1</strong></td><td>并发修复</td><td>B3, B4, B5, B7, B8, B9, B10, <strong>N2</strong>（N2 与 B3/B5 <strong>同批</strong>，不得孤立）</td></tr>
+<tr><td><strong>批次 2</strong></td><td>错误语义与工程化</td><td>B11, B12, B17, F2, F5, F17, N3, N5</td></tr>
+<tr><td><strong>批次 3</strong></td><td>结构性重构</td><td>F3（巨型组件拆分）, F7, N6, 依赖瘦身</td></tr>
+</tbody></table></div>
+<h3 id="h-三条硬依赖-不得颠倒">三条硬依赖（不得颠倒）</h3>
+<ol>
+<li><strong>B1 修复必须先补 RFC 6070 标准测试向量，再改实现</strong> —— 否则改完仍无法自证正确。</li>
+<li><strong>批次 2-1（引入测试与 lint）必须先于批次 3 全部重构</strong> —— 没有回归测试就拆 2,626 行的组件，等于蒙眼手术。</li>
+<li><strong>批次 1-1（连接策略决策）是 1-2 / 1-3 / 1-4 / 2-6 的前置</strong> —— 先定"多连接 vs 单连接加锁"，再动各处并发代码。</li>
+</ol>
+<hr>
+<h2 id="h-十-本次审计的局限-务必一并阅读">十、本次审计的局限（务必一并阅读）</h2>
+<ol>
+<li><strong><code>npm run build</code> 未能在本环境执行</strong>（esbuild <code>spawn EPERM</code>，沙箱对 piped stdio 的限制）。tree-shaking 结论由<strong>同版本 Rollup 4.62.3 进程内对照实验</strong>支撑（<code>VITE_USE_MOCK=false</code> → 4405 B / 3 模块，mock 特征串全 MISS，与空壳对照<strong>字节数相同</strong>；<code>=true</code> → 34273 B / 4 模块全 HIT），属<strong>强间接证据</strong>，非端到端构建复现。</li>
+<li><strong>真实浏览器未实测</strong>（Chrome 被沙箱 mojo 命名管道拒绝，错误码 0x5）。<code>Content-Length</code> 一行按 MDN 规范判定为静默失效，未经浏览器端到端验证。</li>
+<li><strong><code>npm audit</code> 未跑通</strong>（镜像 npmmirror 未实现 advisories 接口，404）。<code>xlsx</code> 的 CVE 结论基于<strong>公开编号 + 版本匹配</strong>。</li>
+<li><strong>历史上被删库重建的数据库无法取证</strong>（<code>server.log:22809</code> 记录过 <code>检测到旧 schema…删除数据库文件并重建</code>）→ "B1 升级链是否曾在生产中被触发过"标为 <strong>UNVERIFIABLE</strong>。</li>
+<li><strong>B1 为静态推导</strong>（推导链完整且三方独立复现），未运行 <code>server.exe</code>、未发 HTTP 请求。</li>
+</ol>
+<hr>
+<h2 id="h-十一-底层报告勘误-14-行-冲突时以-verification-md-为准">十一、底层报告勘误（14 行，冲突时以 <code>VERIFICATION.md</code> 为准）</h2>
+<p>审计过程中修正了底层报告的多处数字与表述，<strong>均未流入本文档与主报告</strong>：</p>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>条目</th><th>原表述</th><th>核实结果</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>B17</code></td><td>"仅 6 处设 <code>res.status</code>"</td><td><strong>16 处</strong>（"217 处业务码"无误）</td></tr>
+<tr><td>2</td><td><code>B25</code></td><td>单参 CORS 重载是"死代码"</td><td><strong>78 处调用</strong>（双参仅 8 处），是<strong>主流调用形式</strong>；同源下 low，配跨域白名单则影响<strong>近乎全站</strong></td></tr>
+<tr><td>3</td><td><code>t1</code> 摘要</td><td>medium 10 / low 10</td><td><strong>medium 9 / low 11</strong></td></tr>
+<tr><td>4</td><td><code>F2</code></td><td>"62 处 <code>res.code</code>"</td><td><strong>58 处</strong></td></tr>
+<tr><td>5</td><td><code>F2</code></td><td><code>catch</code> 注释 6 处</td><td><strong>7 处</strong>（漏 <code>StudentApp.vue:240</code>）</td></tr>
+<tr><td>6</td><td><code>F13</code></td><td>独立的中危信息泄露</td><td>与 <code>B2</code> 种子口令<strong>同一组</strong>，根因是 <code>B2</code>，<strong>单修 F13 收益≈0</strong></td></tr>
+<tr><td>7</td><td><code>F4</code></td><td>"medium → high 提级"</td><td><strong>F4 从头就是 high</strong>（<code>FRONTEND_FINDINGS.md:164/327</code>），<strong>不存在提级</strong>；t2 自报的 1/4/12/7 <strong>完全正确</strong></td></tr>
+<tr><td>8</td><td><code>F4</code></td><td>"硬编码假数据（显示假分数）"</td><td>真相是 <code>1 === "student-02-01-01"</code> 恒 false → <strong>没有任何分数会被显示</strong></td></tr>
+<tr><td>9</td><td><code>F4</code> 改法</td><td>指向 <code>/api/teacher/evaluation/dimensions</code></td><td>应为 <strong><code>routes_teacher.cpp:728</code></strong> 的 <code>GET /api/teacher/evaluations</code>（<strong>复数</strong>）</td></tr>
+<tr><td>10</td><td><code>F7</code> + <code>N6</code></td><td>分列两条</td><td>合并处理</td></tr>
+<tr><td>11</td><td>mock 证据</td><td>UNVERIFIABLE</td><td><strong>CONFIRMED（机制）</strong> + 附注"未经端到端构建复现"</td></tr>
+<tr><td>12</td><td><code>F17</code></td><td>未标证据等级</td><td>版本匹配 + 公开 CVE 编号，<strong>非本机 <code>npm audit</code></strong></td></tr>
+<tr><td>13</td><td><code>B1</code> 影响面</td><td>8 处调用点</td><td><strong>9 处</strong>（漏 <code>routes_public.cpp:48</code> 升级链自身）</td></tr>
+<tr><td>14</td><td>行号</td><td>—</td><td>记录 <strong>10 处</strong>行号/数字不符，<strong>未发现断章取义</strong></td></tr>
+</tbody></table></div>
+<p><strong>被剔除的 5 条伪问题</strong>（复核者证伪，不进报告）： ①单参 CORS"死代码" ②<code>Set-Cookie</code> 会互相覆盖 ③<code>HttpOnly</code> 破坏 CSRF 双重提交 ④备份接口路径注入 ⑤口令哈希无 per-user salt。</p>
+<hr>
+<h2 id="h-十二-支撑文档导航">十二、支撑文档导航</h2>
+<div class="tw"><table>
+<thead><tr><th>文档</th><th>体量</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><strong><code>CODE_QUALITY_SUMMARY.md</code></strong></td><td>本文</td><td>阅读入口，整理与导航</td></tr>
+<tr><td><code>CODE_QUALITY_REVIEW.md</code></td><td>678 行</td><td><strong>主交付物</strong>：完整改进建议书（七节 + 勘误表 + 路线图）</td></tr>
+<tr><td><code>VERIFICATION.md</code></td><td>1033 行</td><td>独立复核：逐条裁定 + 14 行勘误表 + 存疑事项判定</td></tr>
+<tr><td><code>BACKEND_FINDINGS.md</code></td><td>1805 行</td><td>后端原始审计（30 条，含源码原文证据）</td></tr>
+<tr><td><code>FRONTEND_FINDINGS.md</code></td><td>1267 行</td><td>前端原始审计（24 条，含量化指标附表）</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="h-十三-底线声明">十三、底线声明</h2>
+<p><strong>本次评估未改动任何源码、配置或构建产物。</strong></p>
+<ul>
+<li><code>git diff HEAD</code> 为空 → 无任何已跟踪文件被修改</li>
+<li>新增内容仅 <code>docs/audit/</code> 下 5 个 Markdown 文件</li>
+<li>审计期间未运行 <code>server.exe</code>、未发起 HTTP 请求、未 <code>commit</code> / <code>push</code></li>
+<li>报告中所有修复动作（<code>git rm --cached</code>、<code>ci.yml</code> 修改等）<strong>均为建议，尚未执行</strong></li>
+</ul>
+  </main>
+</div>
+</body>
+</html>

@@ -16,6 +16,14 @@ import { isMockEnabled, mockRequest } from '../mock'
 
 const API_BASE = ''
 
+/**
+ * 安全修复 V18（B2）：后端「必须先改初始口令」的信号。
+ * 事件名与文案必须与后端一致：auth.h:327-340 的 403 响应体
+ * {"code":403,"must_change_password":true,"msg":"首次登录必须修改初始口令后才能使用其他功能"}。
+ */
+export const MUST_CHANGE_PASSWORD_EVENT = 'auth:must-change-password'
+export const PASSWORD_CHANGE_MSG = '首次登录必须修改初始口令后才能使用其他功能'
+
 export interface ApiResponse<T = any> {
   code: number
   msg?: string
@@ -70,10 +78,11 @@ export async function apiRequest<T = any>(
   if (data !== undefined && data !== null) {
     headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(data)
-  } else if (method === 'DELETE') {
-    // 无请求体的 DELETE 需 Content-Length:0，兼容部分反代
-    headers['Content-Length'] = '0'
   }
+  // F24：不再为无体 DELETE 手动设置 Content-Length。
+  // 依据（MDN Forbidden request header）：Content-Length 属 fetch 规范禁止的请求头，
+  // 浏览器对 Headers.set 静默忽略 —— 该行从未生效。无请求体时由 fetch 自动置 0，
+  // 后端 httplib 对无 Content-Length 的 DELETE 正常路由（路由层按方法+路径匹配）。
 
   // CSRF：写方法注入 X-CSRF-Token（后端 csrf_check 校验与 cookie 相等）
   if (isWriteMethod(method)) {
@@ -111,6 +120,13 @@ export async function apiRequest<T = any>(
   }
 
   if (response.status === 403) {
+    // 安全修复 V18（B2）：未改初始口令的会话访问业务接口 → 后端返回
+    // {"code":403,"must_change_password":true,...}（auth.h:327-340）。
+    // 广播事件让全局改密门禁接管，不再只弹一条 toast。
+    if (json.must_change_password === true || json.msg === PASSWORD_CHANGE_MSG) {
+      window.dispatchEvent(new CustomEvent(MUST_CHANGE_PASSWORD_EVENT))
+      return json
+    }
     // CSRF 校验失败 / 权限不足
     const msg = json.msg || (isWriteMethod(method) ? 'CSRF 校验失败，请刷新页面重试' : '权限不足')
     toast.error(msg)

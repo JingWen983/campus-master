@@ -17,6 +17,11 @@ export interface UserInfo {
   role_id: number
   className?: string
   points?: number
+  /**
+   * 安全修复 V18（B2）：true = 该账号仍是首启随机初始口令，必须先改密。
+   * 由 /api/auth/login 与 /api/auth/me 下发（routes_public.cpp:85 / :224）。
+   */
+  must_change_password?: boolean
 }
 
 export const ROLE_NAMES: Record<number, string> = {
@@ -66,6 +71,44 @@ function clearUserInfo() {
   localStorage.removeItem('userInfo')
 }
 
+/** 读取本地已存 userInfo 中的「必须先改密」标记（页面刷新后仍可识别） */
+export function isPasswordChangeRequired(): boolean {
+  const local = loadFromStorage()
+  return local?.must_change_password === true
+}
+
+/** 清除本地 userInfo 中的「必须先改密」标记（改密成功后调用） */
+export function clearPasswordChangeRequired(): void {
+  const local = loadFromStorage()
+  if (!local) return
+  local.must_change_password = false
+  saveUserInfo(local)
+}
+
+/**
+ * 安全修复 V18（B2）：修改口令（首登强制改密与常规改密共用的唯一出口）。
+ *
+ * 后端契约（routes_public.cpp:438-536）：
+ *   POST /api/auth/change-password  body: {"old_password": "...", "new_password": "..."}
+ *   200 {"code":200,"msg":"密码修改成功","data":{"must_change_password":false}}
+ *   400 原密码错误 / 新旧相同 / 强度不足（<8 位或不同时含字母与数字）/ 命中弱口令 / 与用户名相同
+ *   这一端点是强制改密门禁的白名单端点（auth.h:325-326），未改密会话可调用。
+ */
+export async function changePassword(
+  oldPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; msg: string }> {
+  const res = await apiRequest<{ must_change_password?: boolean }>('POST', '/api/auth/change-password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  })
+  if (res.code === 200) {
+    clearPasswordChangeRequired()
+    return { ok: true, msg: res.msg || '密码修改成功' }
+  }
+  return { ok: false, msg: res.msg || '密码修改失败，请重试' }
+}
+
 /**
  * 登录：先尝试 /api/auth/login（已支持全部角色含家长 role_id=4），
  * 失败则回退 /api/parent/login（修复原 index.html 的 key bug：parent_password → password）。
@@ -74,19 +117,25 @@ function clearUserInfo() {
  */
 export async function login(username: string, password: string): Promise<boolean> {
   // 1. 普通登录（已支持家长 role_id=4，is_parent 会话）
-  const res = await apiRequest<{ user: UserInfo; csrf_token: string }>('POST', '/api/auth/login', {
+  const res = await apiRequest<{ user: UserInfo; csrf_token: string; must_change_password?: boolean }>('POST', '/api/auth/login', {
     username,
     password,
   })
   if (res.code === 200 && res.data?.user) {
     saveUserInfo(res.data.user)
     setCsrfToken(res.data.csrf_token)
+    // 安全修复 V18（B2）：后端在登录响应里明确告知需改密
+    // （routes_public.cpp:85 的 user.must_change_password 与 :88 的 data.must_change_password）
+    if (res.data.user.must_change_password === true || res.data.must_change_password === true) {
+      // 把标记落到本地 userInfo，供角色主页的全局改密门禁在刷新后仍能识别
+      saveUserInfo({ ...res.data.user, must_change_password: true })
+    }
     location.href = getRoleHome(res.data.user.role_id)
     return true
   }
 
   // 2. 家长登录回退（修复 key：password 而非 parent_password；后端已下发 csrf_token）
-  const pres = await apiRequest<{ user: UserInfo; csrf_token: string }>(
+  const pres = await apiRequest<{ user: UserInfo; csrf_token: string; must_change_password?: boolean }>(
     'POST',
     '/api/parent/login',
     { username, password }
@@ -94,6 +143,9 @@ export async function login(username: string, password: string): Promise<boolean
   if (pres.code === 200 && pres.data?.user) {
     saveUserInfo(pres.data.user)
     setCsrfToken(pres.data.csrf_token)
+    if (pres.data.user.must_change_password === true || pres.data.must_change_password === true) {
+      saveUserInfo({ ...pres.data.user, must_change_password: true })
+    }
     location.href = getRoleHome(pres.data.user.role_id)
     return true
   }

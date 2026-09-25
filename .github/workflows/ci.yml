@@ -51,12 +51,10 @@ jobs:
           test -f dist/index.html || { echo "ERROR: dist/index.html missing"; exit 1; }
           echo "Frontend build OK"
 
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-          retention-days: 14
+      # F1 修复（blocker）：本 job 的产物是 **Mock 构建**（VITE_USE_MOCK=true，与 pages.yml
+      # 的演示站同参），它只读写 localStorage，永远不与 server.exe 通信。因此**不再上传该 dist**，
+      # 也绝不被 package job 复用 —— dev 交付包的前端改由 package job 以真实配置自行构建。
+      # 这里保留 mock 构建只为在 PR 阶段验证「VITE_USE_MOCK 门控产物」仍可构建。
 
   backend:
     name: 后端编译冒烟
@@ -102,20 +100,26 @@ jobs:
           retention-days: 14
 
   # 前端 + 后端都通过后，自动组装完整可运行包（仅 main push；PR 只做检查）
+  # F1 修复（blocker）：本 job **不再**下载 frontend job 的 mock dist（原 :114-118），
+  # 改为在此以真实配置自行构建前端 —— 不设 VITE_USE_MOCK（构建期替换为 'false'）、
+  # 不设 VITE_BASE（base 回退 '/'），因此包内前端会走 /api 打真实 server.exe。
+  # 依赖链：needs [frontend, backend] 仅作质量门禁；产物只下载 server-exe，
+  # 前端 dist 在本 job 内 npm ci && npm run build:no-typecheck 现场生成。
   package:
     name: 自动打包开发版产物
     needs: [frontend, backend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout（获取 config.json 与文档）
+      - name: Checkout（获取前端源码、config.json 与文档）
         uses: actions/checkout@v4
 
-      - name: Download frontend dist
-        uses: actions/download-artifact@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: frontend-dist
-          path: release/frontend/dist
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Download server.exe
         uses: actions/download-artifact@v4
@@ -123,11 +127,57 @@ jobs:
           name: server-exe
           path: release
 
+      - name: Install frontend dependencies（npm ci，与 release.yml 一致）
+        working-directory: frontend
+        run: npm ci
+
+      # ===== 关键：非 Mock 构建（真实后端模式）=====
+      # 不设 VITE_USE_MOCK → vite.config.ts:14 的显式断言替换为 'false' → isMockEnabled() 恒 false
+      # 不设 VITE_BASE  → base 回退 '/'，与 server.exe 在站点根 serve frontend/dist 一致
+      - name: Build frontend (真实后端模式，非 Mock)
+        working-directory: frontend
+        run: npm run build:no-typecheck
+
+      - name: Verify frontend dist 为真实后端模式（非 mock 且路径为站点根）
+        working-directory: frontend
+        run: |
+          set -e
+          test -f dist/index.html || { echo "ERROR: frontend/dist/index.html missing"; exit 1; }
+          # ① 产物不得含 mock 演示站专属特征串（mock/index.ts 的 localStorage 键与提示语）
+          if grep -rIl "campus_mock_db_v1" dist; then
+            echo "ERROR: dev 包前端含有 mock 特征串（campus_mock_db_v1）—— F1 回归"; exit 1
+          fi
+          if grep -rIl "\[Mock\] 未匹配的 API" dist; then
+            echo "ERROR: dev 包前端含有 mock 提示串 —— F1 回归"; exit 1
+          fi
+          # ② 资源路径必须是站点根（不得残留 Pages 子路径 /campus-master/）
+          if grep -rIo "/campus-master/" dist | head -n 1 | grep -q .; then
+            echo "ERROR: dev 包前端残留 VITE_BASE=/campus-master/ 子路径 —— F1 第二处根因回归"; exit 1
+          fi
+          echo "Frontend dist OK: 非 Mock 构建 + 站点根路径"
+          ls dist
+
       - name: Assemble release folder
         run: |
+          mkdir -p release/frontend
           chmod +x release/server.exe
+          cp -r frontend/dist release/frontend/dist
           cp config.json README.md release/
-          [ -d docs ] && cp -r docs release/ || true
+          # 文档：随包分发用户手册等，但**排除 docs/audit/**（T31）
+          # 原因：docs/audit 是审计报告与证据，含已失效口令的明文原像与未修复缺陷的复现细节；
+          # 与 README.md 里「不存在任何固定/可预测默认口令」的正确口径在同一个 zip 内**自相矛盾**，
+          # 且属对终端用户的过度暴露。审计证据本身必须留在仓库中（不删），只是不进交付包。
+          if [ -d docs ]; then
+            mkdir -p release/docs
+            cp -r docs/. release/docs/
+            rm -rf release/docs/audit
+          fi
+          # 反向守卫：交付包内不得出现 docs/audit（含证据文件），任何回归立即失败
+          if [ -d release/docs/audit ]; then
+            echo "ERROR: 交付包内出现 docs/audit —— 打包排除回归"; exit 1
+          fi
+          echo "Docs packed (docs/audit excluded):"
+          ls -R release/docs | head -20
           echo "commit: ${{ github.sha }}" > release/VERSION.txt
           echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
           ls -R release | head -30

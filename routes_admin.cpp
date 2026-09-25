@@ -5,6 +5,7 @@
 #include "logger.h"
 #include <unordered_map>
 #include <regex>
+#include <filesystem>
 
 // 辅助函数：安全获取字符串字段（处理 NULL 情况）
 static std::string get_string_field(const json& row, const std::string& key) {
@@ -332,18 +333,68 @@ void register_admin_routes(httplib::Server& svr) {
 
         json response;
 
+        // 安全修复 B13：备份成败判据修正。
+        // 旧实现用 db.query("VACUUM INTO ...") 的返回值判成败（backup_result.is_null() 即成功），
+        // 但 VACUUM INTO **不返回结果行**：query() 恒返回空数组（json::array()），
+        // is_null() 恒为 false → 走 else 分支恒判「备份失败」；反过来若沿错误的判据写，
+        // 任何 SQL 错误都会被误报为成功。现改为：
+        //   ① 用 execute() 的 sqlite3_exec 返回码作为主判据（VACUUM INTO 失败返回 SQLITE_ERROR）；
+        //   ② 再用磁盘校验兜底：备份文件必须真实存在且非空。
+        // 失败路径真实可达：目标目录不可写 / 文件已存在 / 磁盘满 → 返回业务码 500 且记录原因。
+        if (!db.isOpen()) {
+            Logger::error("数据库备份失败：数据库连接不可用");
+            res.status = 500;
+            response = {{"code", 500}, {"msg", "备份失败：数据库连接不可用"}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+
         string backup_path = "campus_system_backup_" + get_current_time();
         for (auto& c : backup_path) {
             if (c == ' ' || c == ':') c = '_';
         }
         backup_path += ".db";
 
-        json backup_result = db.query("VACUUM INTO '" + backup_path + "'");
-        if (backup_result.is_null()) {
-            response = {{"code", 200}, {"msg", "备份成功"}, {"data", {{"path", backup_path}}}};
-            Logger::info("数据库备份成功: " + backup_path);
+        // VACUUM INTO 的目标文件必须不存在（已存在时 SQLite 报错 "output file already exists"）。
+        // 这里显式检测并快速失败：既不静默删除已有文件（可能来自上一次中断，静默 remove 会掩盖
+        // 上一次的真实失败），也不让判据依赖 SQLite 的错误措辞。
+        std::error_code ec;
+        if (std::filesystem::exists(backup_path, ec)) {
+            std::string reason = "目标备份文件已存在，拒绝覆盖";
+            Logger::error("数据库备份失败: " + backup_path + " —— " + reason);
+            res.status = 500;
+            response = {{"code", 500}, {"msg", "备份失败：" + reason}, {"data", {{"path", backup_path}}}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+
+        bool exec_ok = db.execute("VACUUM INTO '" + backup_path + "'");
+
+        bool file_ok = false;
+        std::uintmax_t file_size = 0;
+        std::error_code size_ec;
+        if (std::filesystem::exists(backup_path, size_ec) &&
+            std::filesystem::is_regular_file(backup_path, size_ec)) {
+            file_size = std::filesystem::file_size(backup_path, size_ec);
+            file_ok = (!size_ec && file_size > 0);
+        }
+
+        if (exec_ok && file_ok) {
+            response = {{"code", 200},
+                        {"msg", "备份成功"},
+                        {"data", {{"path", backup_path}, {"size", static_cast<long long>(file_size)}}}};
+            Logger::info("数据库备份成功: " + backup_path + "（" + std::to_string(file_size) + " 字节）");
         } else {
-            response = {{"code", 500}, {"msg", "备份失败"}};
+            // 失败时清理半成品文件，避免留下 0 字节/截断的「假备份」
+            std::error_code rm_ec;
+            if (std::filesystem::exists(backup_path, rm_ec)) {
+                std::filesystem::remove(backup_path, rm_ec);
+            }
+            std::string reason = !exec_ok ? "VACUUM INTO 执行失败（备份目录不可写、路径非法或磁盘空间不足）"
+                                          : "备份文件未生成或为空";
+            Logger::error("数据库备份失败: " + backup_path + " —— " + reason);
+            res.status = 500;
+            response = {{"code", 500}, {"msg", "备份失败：" + reason}, {"data", {{"path", backup_path}}}};
         }
 
         res.set_content(response.dump(), "application/json");
@@ -718,7 +769,19 @@ void register_admin_routes(httplib::Server& svr) {
                 return;
             }
 
-            string old_username = user_it->username;
+            // 安全修复 T32：改名后必须**整体重建**用户索引。
+            // 原实现在此处保存 old_username，随后做增量维护：
+            //   update_user_index(*user_it);                                  // 写入 user_id_map[id]
+            //   if (old_username != username) remove_user_index(user_id, old_username);
+            // 而 remove_user_index()（models.cpp:256-259）会**同时** erase
+            // user_id_map[user_id] 与 user_username_map[old_username]（不会 erase 用户名之外的旧 id 键），
+            // 于是上面刚写入的 id 映射被立刻删掉 → find_user_by_id(id) 返回 nullptr：
+            //   * 强制改密门禁（user_must_change_password → find_user_by_id）对该用户静默失效 → B2 可被绕过；
+            //   * 其余依赖 find_user_by_id 的端点会误报「用户不存在」——实测连该用户自己的
+            //     改密接口都返回 404，用户既进不去也改不了密；且只在重启后由 init_indexes() 自愈。
+            // 现改为一次 rebuild_user_indexes()（与 B6/T24 同向）：users 向量此时已含新用户名，
+            // 重建后 user_id_map / user_username_map 均与向量逐项一致，且不再依赖两个索引函数的调用顺序。
+            // 原先用于比较的 old_username 随之不再需要，一并移除。
             user_it->username = username;
             user_it->name = name;
             user_it->role_id = role_id;
@@ -729,10 +792,7 @@ void register_admin_routes(httplib::Server& svr) {
                 {SqliteDb::Bind(username), SqliteDb::Bind(name), SqliteDb::Bind((long long)role_id),
                  SqliteDb::Bind(className), SqliteDb::Bind(user_id)});
 
-            update_user_index(*user_it);
-            if (old_username != username) {
-                remove_user_index(user_id, old_username);
-            }
+            rebuild_user_indexes();
 
             // 教师角色：同步 teacher_classes 绑定
             if (role_id == 2) {
@@ -824,7 +884,9 @@ void register_admin_routes(httplib::Server& svr) {
 
                 delete_user_from_db(deleted_id);
                 users.erase(user_it);
-                remove_user_index(deleted_id, deleted_username);
+                // 安全修复 B6：erase 会让后续元素整体前移，必须重建用户索引，
+                // 否则 user_id_map 仍存旧下标 → 后续 find_user_by_id 返回错误用户。
+                rebuild_user_indexes();
                 response = {{"code", 200}, {"msg", "用户删除成功"}};
             }
         } catch (const exception& e) {
@@ -879,10 +941,14 @@ void register_admin_routes(httplib::Server& svr) {
             } else {
                 std::string new_hash = hash_password(new_password);
                 user_it->password_hash = new_hash;
+                // 安全修复 V18（B2）：管理员代设的口令必须首登改密，否则强制改密可被绕过。
+                // user_it 来自数据库加载，其标记反映旧状态，故必须显式置位，
+                // 并与 password_hash 在同一条 UPDATE 内落库。
+                user_it->must_change_password = true;
 
                 // 安全修复 V2：参数化更新，避免 user_id 触发注入
                 db.execute_bind(
-                    "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     {SqliteDb::Bind(new_hash), SqliteDb::Bind(user_id)});
 
                 std::string session_id = get_cookie_value(req, "sid");
@@ -1468,6 +1534,9 @@ void register_admin_routes(httplib::Server& svr) {
                             std::string plain = user_json.value("password", "");
                             if (!plain.empty()) {
                                 existing->password_hash = hash_password(plain);
+                                // 安全修复 V18（B2）：导入重置口令同属「他人代设」，必须首登改密
+                                // （existing 随后经 save_user_to_db 落库，标记一并写入）
+                                existing->must_change_password = true;
                             }
                             // 安全修复 V1：导入时 role_id 仅允许学生；提升角色需在专门接口
                             int role = user_json.value("role_id", 3);

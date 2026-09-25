@@ -13,6 +13,9 @@ import { ref, onMounted } from 'vue'
 import { login } from '../lib/auth'
 import { apiRequest } from '../lib/api'
 import { getRoleHome } from '../lib/auth'
+// 安全修复 V18（F13）：演示账号一键填充只在 mock/演示模式（VITE_USE_MOCK=true）下渲染，
+// 正式发布包（未设 VITE_USE_MOCK，构建时该表达式被替换为 'false'）不暴露可预测默认口令。
+import { isMockEnabled } from '../mock'
 
 const username = ref('')
 const password = ref('')
@@ -174,9 +177,9 @@ function fillTestAccount(u: string, p: string) {
               </button>
             </form>
 
-            <!-- 演示账号 -->
-            <div class="mt-8 pt-6 border-t border-stone-200/60">
-              <p class="text-center text-xs text-stone-400 uppercase tracking-wider mb-4">演示账号 · 一键填充</p>
+            <!-- 演示账号（安全修复 V18 / F13：仅 mock/演示构建可见） -->
+            <div v-if="isMockEnabled()" class="mt-8 pt-6 border-t border-stone-200/60">
+              <p class="text-center text-xs text-stone-400 uppercase tracking-wider mb-4">演示账号 · 一键填充（仅演示站）</p>
               <div class="grid grid-cols-4 gap-3">
                 <button type="button" @click="fillTestAccount('admin', 'admin123')"
                   class="role-chip group p-4 bg-rose-50/80 border border-rose-200/60 rounded-2xl text-center hover:border-rose-400">

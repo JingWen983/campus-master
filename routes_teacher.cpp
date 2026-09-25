@@ -255,10 +255,11 @@ void register_teacher_routes(httplib::Server& svr) {
             if (it == users.end()) {
                 response = {{"code", 404}, {"msg", "学生不存在"}};
             } else {
-                string deleted_username = it->username;
                 users.erase(it);
-                remove_user_index(student_id, deleted_username);
+                // 安全修复 B6：erase 会让后续元素整体前移，必须重建用户索引，
+                // 否则 user_id_map 仍存旧下标 → 后续 find_user_by_id 返回错误学生。
                 delete_user_from_db(student_id);
+                rebuild_user_indexes();
                 response = {{"code", 200}, {"msg", "学生删除成功"}};
             }
 

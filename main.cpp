@@ -41,6 +41,136 @@ static bool users_table_is_old_schema() {
     return false;
 }
 
+// ===========================================================================
+// 安全修复 V18（B2）：首启随机口令 + 强制首登改密
+// ===========================================================================
+
+// users 表是否已有指定列（PRAGMA table_info 探测）
+static bool users_has_column(const std::string& column) {
+    if (!db.isOpen()) return false;
+    json result = db.query("PRAGMA table_info(users)");
+    for (const auto& col : result) {
+        if (col.value("name", "") == column) return true;
+    }
+    return false;
+}
+
+// 旧库兼容迁移：为 users 增加 must_change_password 列。
+// 幂等（列已存在则不动），**不删库、不丢数据** —— 与 users_table_is_old_schema() 那条
+// 只针对史前 id 类型变更的破坏性重建路径不同。存量用户默认 0（不强制改密），
+// 只有首启新建的种子账号才置 1。
+static void migrate_users_must_change_password() {
+    if (!db.isOpen()) return;
+
+    json has_users_table = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");
+    if (has_users_table.empty()) return;
+    if (users_has_column("must_change_password")) return;
+
+    Logger::warning("检测到旧库缺少 users.must_change_password 列，执行 ALTER TABLE 兼容迁移（不删库）");
+    if (db.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")) {
+        Logger::info("迁移完成：users.must_change_password 已添加，存量用户默认 0");
+    } else {
+        Logger::error("迁移失败：ALTER TABLE users ADD COLUMN must_change_password");
+    }
+}
+
+// 首启（users 表为空）创建 4 个种子账号：
+//   * 口令由 sha256.h 的 CSPRNG（generate_random_password）生成，两两不同；
+//   * 用 hash_password() 哈希后**参数化**写入（SQL 内不再出现任何口令哈希）；
+//   * 全部标记 must_change_password = 1（首登必须改密）；
+//   * 明文口令**只输出到标准输出一次**，不写入任何文件（Logger 会落盘 server.log，
+//     故刻意不走 Logger），也不会重复输出（仅在 users 表为空时触发）。
+static void seed_default_users_if_empty() {
+    if (!db.isOpen()) return;
+
+    json cnt = db.query("SELECT COUNT(*) AS c FROM users");
+    int existing = cnt.empty() ? 0 : cnt[0].value("c", 0);
+    if (existing > 0) return;
+
+    struct SeedSpec {
+        const char* id;
+        const char* username;
+        int role_id;
+        const char* name;
+        const char* className;
+        int points;
+    };
+    const SeedSpec specs[4] = {
+        {"admin-01",         "admin",   1, "管理员",     "系统管理",   0},
+        {"teacher-001",      "teacher", 2, "王老师",     "高二(1)班",  0},
+        {"student-02-01-01", "student", 3, "张同学",     "高二(1)班",  150},
+        {"parent-001",       "parent",  4, "张同学家长", "",           0},
+    };
+
+    // 两两不同的随机强口令（碰撞则重试；实际碰撞概率可忽略，但仍显式保证）
+    std::string passwords[4];
+    for (int i = 0; i < 4; i++) {
+        std::string pwd = generate_random_password();
+        int guard = 0;
+        bool dup = true;
+        while (dup && guard++ < 100) {
+            dup = false;
+            for (int j = 0; j < i; j++) {
+                if (passwords[j] == pwd) { dup = true; break; }
+            }
+            if (dup) pwd = generate_random_password();
+        }
+        passwords[i] = pwd;
+    }
+
+    bool all_ok = true;
+    for (int i = 0; i < 4; i++) {
+        bool ok = db.execute_bind(
+            "INSERT INTO users (id, username, password_hash, role_id, name, className, points, must_change_password) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            {SqliteDb::Bind(specs[i].id),
+             SqliteDb::Bind(specs[i].username),
+             SqliteDb::Bind(hash_password(passwords[i])),
+             SqliteDb::Bind((long long)specs[i].role_id),
+             SqliteDb::Bind(specs[i].name),
+             SqliteDb::Bind(specs[i].className),
+             SqliteDb::Bind((long long)specs[i].points),
+             SqliteDb::Bind((long long)1)});
+        if (!ok) {
+            all_ok = false;
+            Logger::error(std::string("种子账号写入失败: ") + specs[i].username);
+        }
+    }
+    if (!all_ok) return;
+
+    Logger::info("首启检测：users 表为空，已创建 4 个种子账号（随机强口令 + 强制首登改密）");
+
+    std::cout << "\n";
+    std::cout << "================================================================\n";
+    std::cout << "  首次启动：已为下列账号生成随机初始口令（仅本次显示，请立即保存）\n";
+    std::cout << "  这些账号首次登录后必须先修改口令，否则无法调用其它接口。\n";
+    std::cout << "----------------------------------------------------------------\n";
+    for (int i = 0; i < 4; i++) {
+        std::cout << "  " << specs[i].username << "    " << passwords[i] << "\n";
+    }
+    std::cout << "================================================================\n" << std::endl;
+}
+
+// 信息性告警：统计仍在用旧版无盐 SHA256 哈希的存量用户。
+// 按 T1 决策①，存量记录不在此处做破坏性改写，而是交付运维强制重置流程。
+static void warn_legacy_weak_hashes() {
+    int legacy = 0;
+    for (const auto& u : users) {
+        if (u.password_hash.compare(0, 7, "pbkdf2$") != 0) legacy++;
+    }
+    if (legacy > 0) {
+        Logger::warning("检测到 " + std::to_string(legacy) +
+                        " 个用户仍使用旧版无盐 SHA256 哈希（legacy 分支仅按 sha256(password)==hash 判定，"
+                        "且自 V18 起不再被登录流程自动改写 —— 自动升级链已按决策①删除）");
+        // 队长补充要求②：重置清单必须**同时覆盖**裸 SHA256 行与 pbkdf2$ 行。
+        // 背景：reviewer 建议批次 1 直接删掉 legacy 分支；一旦删掉，只重置 pbkdf2$ 记录是不够的 ——
+        // 裸 SHA256 历史行会变成「既不能登录、也没被重置」的死账号。
+        Logger::warning("运维提醒：强制改密/存量重置清单必须同时覆盖**裸 SHA256 行**与 **pbkdf2$ 行**，"
+                        "不能只点名 pbkdf2$；否则裸 SHA256 行将成为既不能登录也未被重置的死账号。"
+                        "可用：UPDATE users SET must_change_password=1 WHERE password_hash NOT LIKE 'pbkdf2%';");
+    }
+}
+
 int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -71,7 +201,17 @@ int main() {
             }
         }
     } else {
-        Logger::warning("SQLite 数据库连接失败，使用内存存储");
+        // 安全修复 V18（B2）：磁盘库打开失败**不再静默降级为内存库**。
+        // 旧行为（Logger::warning 后继续用内存存储）会带来三重风险：
+        //   1) 服务在「所有口令修改/用户增删都不会落盘」的状态下继续对外服务；
+        //   2) models.cpp 的内存表内曾带着 4 个可预测的默认账号（本次一并移除）；
+        //   3) 故障完全静默，运维与攻击者都难以察觉。
+        // 现改为 fail-fast：由运维修复 db_path 权限/磁盘问题后重启。
+        Logger::error("SQLite 数据库连接失败，拒绝以内存模式启动（安全修复 V18）：" + g_config.db_path);
+        std::cerr << "[FATAL] 无法打开数据库: " << g_config.db_path
+                  << "\n        已按安全修复 V18 拒绝内存兜底启动（退出码 1），请检查路径/权限/磁盘后重启。"
+                  << std::endl;
+        return 1;
     }
 
     if (db.isOpen()) {
@@ -84,6 +224,7 @@ int main() {
                 name TEXT NOT NULL,
                 className TEXT,
                 points INTEGER DEFAULT 0,
+                must_change_password INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -247,11 +388,12 @@ int main() {
                 (3, 6),
                 (4, 6), (4, 9), (4, 11);
 
-            INSERT OR IGNORE INTO users (id, username, password_hash, role_id, name, className, points) VALUES
-                ('admin-01', 'admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 1, '管理员', '系统管理', 0),
-                ('teacher-001', 'teacher', 'cde383eee8ee7a4400adf7a15f716f179a2eb97646b37e089eb8d6d04e663416', 2, '王老师', '高二(1)班', 0),
-                ('student-02-01-01', 'student', '703b0a3d6ad75b649a28adde7d83c6251da457549263bc7ff45ec709b0a8448b', 3, '张同学', '高二(1)班', 150),
-                ('parent-001', 'parent', '82e3edf5f5f3a46b5f94579b61817fd9a1f356adcef5ee22da3b96ef775c4860', 4, '张同学家长', '', 0);
+            -- 安全修复 V18（B2）：种子用户**不再**内联在 SQL 里。
+            -- 旧实现把 4 个账号（admin/teacher/student/parent）的无盐 SHA256 口令哈希
+            -- （明文为 xxx123 这类可猜值）直接写死在此处，随所有构建产物分发。
+            -- 现改为：首启时由 seed_default_users_if_empty() 用 CSPRNG 生成互不相同的
+            -- 随机强口令，hash_password() 哈希后**参数化**写入，并标记 must_change_password=1。
+            -- 明文只在标准输出一次性提示，不写入任何文件（见下方函数实现）。
 
             INSERT OR IGNORE INTO mall_items (name, description, cost, stock) VALUES
                 ('文具套装', '精美文具套装一份', 50, 100),
@@ -274,11 +416,26 @@ int main() {
 
         if (db.execute(init_sql)) {
             Logger::info("数据库表结构初始化成功");
+
+            // 安全修复 V18（B2）：旧库缺列时先做 ALTER TABLE 兼容迁移（不删库），
+            // 必须在 load_users_from_db() 之前完成，否则 SELECT 新列会失败。
+            migrate_users_must_change_password();
+
+            // 安全修复 V18（B2）：首启（users 表为空）生成随机强口令种子账号
+            seed_default_users_if_empty();
+
             if (load_users_from_db()) {
                 Logger::info("从数据库加载用户数据成功");
+            } else {
+                Logger::error("从数据库加载用户数据失败（users 表为空）");
             }
+            warn_legacy_weak_hashes();
         } else {
-            Logger::error("数据库表结构初始化失败");
+            // 表结构都没建起来时继续监听会让所有接口都失败且难以察觉，
+            // 与「不静默降级」同一原则，故同样 fail-fast。
+            Logger::error("数据库表结构初始化失败，拒绝启动（安全修复 V18）");
+            std::cerr << "[FATAL] 数据库表结构初始化失败，已退出。" << std::endl;
+            return 1;
         }
     }
 
@@ -312,6 +469,13 @@ int main() {
     if (g_config.https_enabled) {
         Logger::warning("HTTPS 已在配置中启用，但当前编译版本不支持 SSLServer。请使用 OpenSSL 版本编译。回退到 HTTP 模式。");
         g_config.https_enabled = false;
+        // 安全修复 N1：回退到明文 HTTP 后必须同步关闭 Secure Cookie 开关。
+        // config.h:84 在读到 https.enabled=true 时会把 cookie_secure 置 true，
+        // 而本分支把 https_enabled 置回 false 后并未复位该开关 —— 结果是明文 HTTP 下
+        // 仍下发带 Secure 的 Cookie，浏览器仅在 HTTPS 上下文回传，登录会话直接失效。
+        // 此处为唯一开关（auth.h:88 / :95 / :174 三处 Set-Cookie 均只读 g_config.cookie_secure）。
+        g_config.cookie_secure = false;
+        Logger::warning("已同步复位 cookie_secure=false，明文 HTTP 下不再下发带 Secure 的 Cookie（安全修复 N1）");
     }
 
     // 10. 启动服务器

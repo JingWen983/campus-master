@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>前端 Vue3/TS 审计 — 校园能量站代码质量评估</title>
+<style>
+:root{--bg:#f7f8fa;--panel:#fff;--ink:#1f2328;--muted:#5a6572;--line:#e3e6ea;--accent:#0f766e;
+--blocker:#b91c1c;--high:#c2410c;--med:#a16207;--low:#4b5563;--code-bg:#f3f4f6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
+.wrap{display:flex;max-width:1500px;margin:0 auto;gap:0;align-items:flex-start}
+aside{position:sticky;top:0;height:100vh;overflow-y:auto;flex:0 0 280px;background:#0f172a;color:#cbd5e1;padding:24px 18px}
+aside h1{font-size:15px;color:#fff;margin:0 0 4px;letter-spacing:.02em}
+aside .sub{font-size:12px;color:#94a3b8;margin-bottom:20px;line-height:1.5}
+aside nav a{display:block;color:#cbd5e1;text-decoration:none;font-size:13.5px;padding:7px 10px;border-radius:7px;margin-bottom:3px}
+aside nav a:hover{background:#1e293b;color:#fff}
+aside nav a.active{background:var(--accent);color:#fff;font-weight:600}
+aside .toc{border-top:1px solid #1e293b;margin-top:18px;padding-top:14px}
+aside .toc .h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:8px}
+aside .toc a{display:block;color:#94a3b8;text-decoration:none;font-size:12.5px;padding:4px 10px;border-left:2px solid #1e293b;line-height:1.45}
+aside .toc a:hover{color:#fff;border-left-color:var(--accent)}
+main{flex:1 1 auto;min-width:0;background:var(--panel);padding:48px 60px 96px;min-height:100vh}
+.meta{font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:32px}
+h1{font-size:30px;margin:0 0 10px;letter-spacing:-.01em}
+h2{font-size:22px;margin:44px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:none}
+h3{font-size:17.5px;margin:28px 0 10px}
+h4{font-size:15.5px;margin:20px 0 8px;color:var(--muted)}
+p{margin:12px 0}
+a{color:#0e7490}
+ul,ol{margin:12px 0;padding-left:26px}
+li{margin:5px 0}
+code{background:var(--code-bg);padding:2px 6px;border-radius:5px;font-size:13.5px;
+font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Code",monospace;color:#0f172a}
+pre.code{background:#0f172a;color:#e2e8f0;padding:16px 18px;border-radius:10px;overflow-x:auto;margin:16px 0;
+font-size:13.5px;line-height:1.6}
+pre.code code{background:none;color:inherit;padding:0;font-size:inherit}
+blockquote{margin:18px 0;padding:14px 20px;background:#f0fdfa;border-left:4px solid var(--accent);border-radius:0 8px 8px 0;color:#134e4a}
+blockquote blockquote{margin:8px 0}
+blockquote.callout{background:#fef2f2;border-left-color:var(--blocker)}
+blockquote.callout .callout-big{font-size:18px;font-weight:700;color:var(--blocker);margin:0;line-height:1.5}
+hr{border:none;border-top:1px solid var(--line);margin:36px 0}
+.tw{overflow-x:auto;margin:18px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:#f1f5f9;font-weight:600;white-space:nowrap}
+tr:nth-child(even) td{background:#fafbfc}
+strong{color:#0b1220}
+@media print{
+  aside{display:none}
+  body{background:#fff}
+  main{padding:0;max-width:100%}
+  pre.code{background:#f5f5f5;color:#111;border:1px solid #ddd}
+  h2{page-break-after:avoid}
+  .tw,table,pre.code,blockquote{page-break-inside:avoid}
+}
+@media(max-width:900px){.wrap{flex-direction:column}aside{position:static;height:auto;width:100%;flex:none}main{padding:28px 20px 64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <h1>校园能量站 · 代码质量评估</h1>
+    <div class="sub">只读审计 · 未改动任何源码<br>2026-09-12</div>
+    <nav>
+      <a href="CODE_QUALITY_SUMMARY.html">代码质量评估总览</a>
+      <a href="CODE_QUALITY_REVIEW.html">代码质量改进建议书（主交付物）</a>
+      <a href="VERIFICATION.html">独立复核报告</a>
+      <a href="BACKEND_FINDINGS.html">后端 C++ 审计</a>
+      <a href="FRONTEND_FINDINGS.html" class="active">前端 Vue3/TS 审计</a>
+    </nav>
+    <div class="toc">
+      <div class="h">本页目录</div>
+      <a class="l2" href="#h-1-审计范围与方法">1. 审计范围与方法</a>
+        <a class="l2" href="#h-2-结论摘要-按严重度排序">2. 结论摘要（按严重度排序）</a>
+        <a class="l2" href="#h-3-逐条发现详情">3. 逐条发现详情</a>
+        <a class="l2" href="#h-4-做得好的地方-均有源码依据">4. 做得好的地方（均有源码依据）</a>
+        <a class="l2" href="#h-5-量化指标附表">5. 量化指标附表</a>
+        <a class="l2" href="#h-6-未验证-存疑事项-如实标注">6. 未验证 / 存疑事项（如实标注）</a>
+        <a class="l2" href="#h-7-建议的改进优先级与批次划分">7. 建议的改进优先级与批次划分</a>
+        <a class="l2" href="#h-附-本报告未改动任何源码的证明">附：本报告未改动任何源码的证明</a>
+    </div>
+  </aside>
+  <main>
+    <div class="meta">源文件 <code>FRONTEND_FINDINGS.md</code> · 1268 行 · 82,532 字节 · 共 8 个章节</div>
+    <h1 id="h-校园能量站-vue3-typescript-前端代码质量审计报告-frontend_findings">校园能量站 · Vue3 + TypeScript 前端代码质量审计报告（FRONTEND_FINDINGS）</h1>
+<ul>
+<li>审计对象：<code>D:\邵敬文\comptation\frontend\</code>（Vue 3.5 + TypeScript 5 + Vite 5 多入口工程）</li>
+<li>审计基线：<code>git rev-parse HEAD</code> = <code>47006bd773f3eb55a25c56228b5a02fec432f2af</code>（分支 main，工作区干净：<code>git status --porcelain</code> 仅有未跟踪的 <code>.agent-teams/</code>、<code>docs/audit/</code>）</li>
+<li>审计立场：<strong>只读</strong>。除本报告外未创建/修改任何受跟踪文件；<code>package-lock.json</code> 未被改动（<code>git status</code> 无变更），<code>frontend/dist</code> 未产出（构建被沙箱阻断，见 1.3）</li>
+<li>行数口径：<code>Get-Content | .Count</code> 与 <code>read</code> 工具的 <code>of N</code> 一致（例如 <code>TeacherApp.vue</code> 1519 行、<code>AdminApp.vue</code> 2626 行）</li>
+</ul>
+<hr>
+<h2 id="h-1-审计范围与方法">1. 审计范围与方法</h2>
+<h3 id="h-1-1-逐行阅读的自研文件-read-工具-行号以下文引用为准">1.1 逐行阅读的自研文件（<code>read</code> 工具，行号以下文引用为准）</h3>
+<div class="tw"><table>
+<thead><tr><th>文件</th><th>行数</th><th>读法</th></tr></thead>
+<tbody>
+<tr><td><code>src/lib/api.ts</code></td><td>135</td><td>全文</td></tr>
+<tr><td><code>src/lib/auth.ts</code></td><td>159</td><td>全文</td></tr>
+<tr><td><code>src/lib/format.ts</code></td><td>54</td><td>全文</td></tr>
+<tr><td><code>src/lib/navConfig.ts</code></td><td>62</td><td>全文</td></tr>
+<tr><td><code>src/lib/theme.ts</code></td><td>95</td><td>全文</td></tr>
+<tr><td><code>src/mock/index.ts</code></td><td>693</td><td>1-130、160-274、650-693 全文精读 + 全量正则扫描</td></tr>
+<tr><td><code>src/main.ts</code> / <code>src/env.d.ts</code> / <code>src/style.css</code></td><td>39 / 17 / 120</td><td>全文</td></tr>
+<tr><td><code>src/entries/*.ts</code>（5 个）</td><td>各 4</td><td>全文</td></tr>
+<tr><td><code>src/components/</code>（10 个）</td><td>123+50+139+119+36+117+42+145+66+96</td><td>全部全文</td></tr>
+<tr><td><code>src/composables/</code>（4 个）</td><td>65+62+67+60</td><td>全部全文</td></tr>
+<tr><td><code>src/pages/Login.vue</code></td><td>291</td><td>全文</td></tr>
+<tr><td><code>src/pages/admin/AdminApp.vue</code></td><td>2626</td><td>script 段 1-1237 通读（分 4 段），template 段 1245-2499 结构地标全量扫描 + 定点精读（1604-1763、1868-1900 等）</td></tr>
+<tr><td><code>src/pages/teacher/TeacherApp.vue</code></td><td>1519</td><td>script 段 1-734 通读，template 段 736-1519 结构地标全量扫描</td></tr>
+<tr><td><code>src/pages/parent/ParentApp.vue</code></td><td>842</td><td>script 段 1-257 通读，template 段 259-842 结构地标全量扫描</td></tr>
+<tr><td><code>src/pages/student/StudentApp.vue</code></td><td>788</td><td>script 段 1-283 通读，template 段 285-788 结构地标全量扫描</td></tr>
+<tr><td>工程配置</td><td>—</td><td><code>vite.config.ts</code>(40)、<code>tsconfig.json</code>(27)、<code>package.json</code>(29)、5 个入口 HTML、<code>tailwind.config.js</code>、<code>postcss.config.js</code>、<code>.github/workflows/{ci,pages,release}.yml</code></td></tr>
+</tbody></table></div>
+<p><strong>按任务约定排除</strong>：<code>src/assets/fonts/*.woff2</code>（107 个）与 <code>src/assets/fonts.css</code>（113,012 B）只做体积评估，不逐行审计。</p>
+<p><strong>跨边界取证（只读，用于判定前端分支）</strong>：<code>routes_admin.cpp:130-147</code>、<code>routes_static.cpp:58-69</code>，以及 <code>.github/workflows/release.yml:164-167</code>（用于确认演示口令即真实默认口令）。</p>
+<h3 id="h-1-2-为判定-运行时-构建期行为-而查阅的第三方与规范资料">1.2 为判定“运行时/构建期行为”而查阅的第三方与规范资料</h3>
+<ul>
+<li><code>node_modules/vite</code> 默认 treeshake 行为（<code>grep moduleSideEffects</code>）</li>
+<li>MDN：<a href="https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_request_header">Forbidden request header</a>、<a href="https://developer.mozilla.org/en-US/docs/Web/API/Headers/set">Headers.set()</a>（判定 <code>Content-Length</code>，见 F24）</li>
+<li>SheetJS <code>xlsx</code> 已知漏洞（CVE-2023-30533 / CVE-2024-22363，见 F17）：<a href="https://security.snyk.io/package/npm/%252540keep-lts%25252Fxlsx/0.18.6">Snyk</a>、<a href="https://guide.sonatype.com/vulnerability/CVE-2023-30533">Sonatype CVE-2023-30533</a>、<a href="https://github.com/weareu/xlsx">weareu/xlsx 修复分支</a></li>
+</ul>
+<h3 id="h-1-3-执行过的关键命令与真实输出-原样粘贴">1.3 执行过的关键命令与真实输出（原样粘贴）</h3>
+<p><strong>① <code>npm ci</code>（默认缓存）→ 失败：npm 全局缓存在工作区外，被沙箱拒绝</strong></p>
+<pre class="code"><code>npm error code EPERM
+npm error syscall open
+npm error path C:\Users\Administrator\.astrbot_launcher\components\nodejs\.npm_cache\_cacache\tmp\***
+npm error errno -4048</code></pre>
+<p><strong>② <code>npm ci --cache &lt;TEMP&gt;</code> → 失败：npm 生命周期脚本 spawn 子进程被沙箱拒绝（piped stdio）</strong></p>
+<pre class="code"><code>npm error code EPERM
+npm error syscall spawn
+npm error errno -4048</code></pre>
+<p><strong>③ <code>npm ci --cache &lt;TEMP&gt; --ignore-scripts</code> → 成功</strong></p>
+<pre class="code"><code>added 138 packages in 14s
+### exit=0
+True / True / True     # node_modules/vue、vue-tsc、@esbuild/win32-x64 均就位</code></pre>
+<p><strong>④ <code>npm run typecheck</code>（= <code>vue-tsc --noEmit</code>，与 ci.yml:37-39 同款）→ 通过</strong></p>
+<pre class="code"><code>&gt; campus-energy-station-frontend@1.0.0 typecheck
+&gt; vue-tsc --noEmit
+
+### exit=0     # 无任何错误输出</code></pre>
+<p><strong>⑤ <code>npm run build:no-typecheck</code>（= <code>vite build</code>）→ 失败（沙箱边界，非代码问题）</strong></p>
+<pre class="code"><code>failed to load config from D:\邵敬文\comptation\frontend\vite.config.ts
+error during build:
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:441:11)
+    at ensureServiceIsRunning (...\node_modules\esbuild\lib\main.js:1975:29)</code></pre>
+<p>隔离探针确认这是沙箱对“子进程 + pipe”的限制，与 vite/esbuild 无关：</p>
+<pre class="code"><code>### probe1: node spawnSync with piped stdio
+error: EPERM | stdout: undefined | status: null
+### probe2: node spawn with stdio inherit
+99
+error: undefined | status: 0
+### probe4: esbuild version via node API
+Error: spawn EPERM ... at ensureServiceIsRunning (node_modules\esbuild\lib\main.js:1975:29)</code></pre>
+<p>真实浏览器实测同样被沙箱阻断（Chrome 需要 mojo 命名管道）：</p>
+<pre class="code"><code>ERROR:net\base\network_change_notifier_win.cc:195] WSALookupServiceBegin failed with: 10108
+FATAL:mojo\public\cpp\platform\platform_channel.cc:108] Check failed: . : 拒绝访问。 (0x5)</code></pre>
+<p>→ 因此 <strong><code>dist/</code> 产物无法产出</strong>，第 5.3 节改用“依赖/资源源码体积口径”并明确标注为估算；mock 剔除结论改用<strong>同版本 Rollup 4.62.3 的对照实验</strong>（见 ⑤′）。</p>
+<p><strong>⑤′ mock tree-shaking 对照实验（只读，纯进程内 Rollup，无子进程）</strong></p>
+<p>探针脚本（临时目录，未入库）：模拟 <code>vite.config.ts:12-15</code> 的 define 替换 + esbuild 常量折叠，捆绑 <code>src/lib/api.ts</code> 子图后检索 mock 特征串。三次对照结果：</p>
+<pre class="code"><code>### VITE_USE_MOCK=false mock=真实 折叠OFF defineOFF
+    bundle bytes=37556  模块数=4      HIT  mock 种子数据(三年级一班) / mock csrf 常量(mock-csrf-token)
+### VITE_USE_MOCK=false mock=真实 折叠OFF defineON
+    bundle bytes=4405   模块数=3      MISS mock 种子数据 / MISS mock-csrf-token / MISS newpass123
+### VITE_USE_MOCK=false mock=真实 折叠ON  defineON
+    bundle bytes=4405   模块数=3      MISS 全部 mock 特征串
+### VITE_USE_MOCK=false mock=空壳对照 折叠ON defineON
+    bundle bytes=4405   模块数=3      MISS 全部 mock 特征串
+### VITE_USE_MOCK=true  mock=真实 折叠ON  defineON
+    bundle bytes=34273  模块数=4      HIT  mock 种子数据 / mock-csrf-token / newpass123</code></pre>
+<p><strong>结论：<code>VITE_USE_MOCK !== 'true'</code> 时 <code>src/mock/index.ts</code>（693 行、含 <code>mock-csrf-token</code>、<code>newpass123</code>、种子班级/学生数据）被完整 tree-shaking 剔除</strong>（4405 B 与“把 mock 换成空壳”的对照组字节数完全相同，模块数 3 vs 4）。<code>import.meta.env.VITE_USE_MOCK</code> 是唯一开关，<strong>没有中间态</strong>。</p>
+<p><strong>⑥ 类型安全水位实验（仅命令行覆盖，不改 <code>tsconfig.json</code>；<code>--noEmit</code> 不写盘）</strong></p>
+<pre class="code"><code>### 基线：npm run typecheck                        -&gt; exit=0，0 个错误
+### + --noUnusedLocals --noUnusedParameters        -&gt; 7 个错误 / exit=2
+src/mock/index.ts(298,97): error TS6133: 'db' is declared but its value is never read.
+src/mock/index.ts(298,101): error TS6133: 'body' is declared but its value is never read.
+src/mock/index.ts(411,82): ... src/mock/index.ts(439,94): ...
+src/pages/teacher/TeacherApp.vue(664,25): error TS6133: 'student' is declared but its value is never read.
+### + --noUncheckedIndexedAccess                     -&gt; 19 个错误
+按文件：mock/index.ts 6 / StudentApp.vue 6 / AdminApp.vue 5 / ParentApp.vue 1 / TeacherApp.vue 1
+错误码：TS2532×12、TS18048×4、TS2322×1、TS2345×1、TS2538×1
+示例：AdminApp.vue(648,31): error TS2538: Type 'undefined' cannot be used as an index type.
+      AdminApp.vue(350,17): error TS18048: 'd.value' is possibly 'undefined'.
+### 三项全开                                      -&gt; 26 个错误（mock 12 / student 6 / admin 5 / teacher 2 / parent 1）</code></pre>
+<p><strong>⑦ 依赖与资源体积测量</strong>（<code>Get-ChildItem -Recurse | Measure-Object Length -Sum</code>，见 5.3）与 <code>npm audit</code> 失败取证：</p>
+<pre class="code"><code>npm warn audit 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk
+npm error [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet</code></pre>
+<p><strong>⑧ 死代码/引用面扫描</strong>：<code>Select-String</code> 全量符号检索（<code>usePagination</code>、<code>useTheme</code>、<code>ROLE_THEME</code>、<code>NavSection</code>、<code>resetMockDB</code>、<code>showToast</code>、<code>formatRelative</code>、<code>useAuth</code>、<code>v-html</code>、<code>localStorage</code> 等），结果见各条发现。</p>
+<hr>
+<h2 id="h-2-结论摘要-按严重度排序">2. 结论摘要（按严重度排序）</h2>
+<div class="tw"><table>
+<thead><tr><th>id</th><th>严重度</th><th>位置</th><th>问题一句话</th><th>修复成本</th></tr></thead>
+<tbody>
+<tr><td>F1</td><td>blocker</td><td><code>.github/workflows/ci.yml:41-46,114-146</code></td><td>CI 打包出的“开发版”前端是 Mock 构建，与包内 <code>server.exe</code> 永远不通信（发布包功能失效）</td><td>S</td></tr>
+<tr><td>F2</td><td>high</td><td><code>src/lib/api.ts:103-126</code> + 4 个页面 62 处 <code>res.code</code> 判据</td><td>HTTP 500 带 JSON 体 → 无 toast、无异常、无日志告警，用户零反馈</td><td>S</td></tr>
+<tr><td>F3</td><td>high</td><td><code>src/pages/admin/AdminApp.vue:1-2626</code></td><td>2626 行单文件（script 1237 + template 1263），54 个 ref / 10 个 computed / 26 个 API 调用点 / 12 个弹窗 / 7 个 tab</td><td>L</td></tr>
+<tr><td>F4</td><td>high</td><td><code>src/pages/teacher/TeacherApp.vue:161-171,313-321,634-637,664-683</code></td><td>1519 行单文件 + 硬编码假评价数据被评价弹窗消费（显示假分数）+ 空转 API + 2 个“开发中”死按钮</td><td>L</td></tr>
+<tr><td>F5</td><td>high</td><td><code>src/lib/api.ts:19-24,131-134</code>；<code>tsconfig.json:14-16</code></td><td>类型安全水位：<code>ApiResponse&lt;T = any&gt;</code> + 索引签名 <code>any</code> 让响应体全程无约束；关掉的两项编译检查下潜伏 26 个真实错误</td><td>M</td></tr>
+<tr><td>F6</td><td>medium</td><td><code>src/composables/usePagination.ts:1-67</code>（整文件零引用）；<code>AdminApp.vue:314-337</code>、<code>TeacherApp.vue:215-222</code></td><td>现成分页 composable 是死代码，三个页面各自手写一遍同样的 6 个派生值</td><td>S</td></tr>
+<tr><td>F7</td><td>medium</td><td>8 处零引用导出（<code>useTheme</code>/<code>ROLE_THEME</code>/<code>NavSection</code>/<code>resetMockDB</code>/<code>showToast</code>/<code>formatRelative</code> 链/<code>useAuth</code>）</td><td>“设计了没接线”的死代码，误导后续维护者</td><td>S</td></tr>
+<tr><td>F8</td><td>medium</td><td><code>AdminApp.vue</code>(16 处) + <code>TeacherApp.vue</code>(8 处)</td><td><code>try/catch + console.error + toast.error('网络错误，请稍后重试')</code> 样板重复 24 次；且四个页面错误处理策略互不一致</td><td>M</td></tr>
+<tr><td>F9</td><td>medium</td><td><code>AdminApp.vue:1229-1234</code>、<code>TeacherApp.vue:726-732</code>、<code>ParentApp.vue:113-114</code></td><td>串行请求瀑布（6/7/2 次串行往返）；<code>StudentApp.vue:274-281</code> 已有正确的 <code>Promise.all</code> 写法可直接对照</td><td>S</td></tr>
+<tr><td>F10</td><td>medium</td><td><code>AdminApp.vue:1101-1115</code> + 模板 <code>1634,1661,1688,1691</code></td><td>“系统配置/安全配置/备份配置/立即备份”4 个按钮只弹 toast，不落库、不调接口（假功能）</td><td>S</td></tr>
+<tr><td>F11</td><td>medium</td><td><code>src/composables/useChart.ts:10</code>；<code>AdminApp.vue:15,16</code>；<code>main.ts:2-6</code></td><td>包体：echarts 全量（<code>import * as echarts</code> 阻断 tree-shaking）+ xlsx + pinyin-pro 静态引入；字体 4.72 MB + FontAwesome 999 KB 字体/72 KB CSS</td><td>M</td></tr>
+<tr><td>F12</td><td>medium</td><td><code>src/components/ConfirmDialog.vue:22-26,32</code></td><td>全局确认框的 Esc/Enter 快捷键实际不生效（只绑在未聚焦的 div 上），且无 <code>role="dialog"</code>/焦点陷阱</td><td>S</td></tr>
+<tr><td>F13</td><td>medium</td><td><code>src/pages/Login.vue:181-208</code>；<code>.github/workflows/release.yml:164-167</code></td><td>登录页内置<strong>真实默认口令</strong>明文（admin/admin123 等），随所有构建产物分发</td><td>S</td></tr>
+<tr><td>F14</td><td>medium</td><td><code>src/lib/api.ts:27-39</code>、<code>src/lib/auth.ts:47-67</code></td><td>csrf_token 与 userInfo 存 localStorage：同源脚本可读；已核查缓解措施（0 处 v-html、无第三方 JS、服务端复验、登出清理）</td><td>M</td></tr>
+<tr><td>F15</td><td>medium</td><td><code>package.json:6-12</code>、<code>.github/workflows/ci.yml:37-46</code></td><td>0 个测试文件、无 vitest/eslint/prettier；CI 仅有 typecheck+build，2 626 行核心页面无任何回归网</td><td>L</td></tr>
+<tr><td>F16</td><td>medium</td><td><code>.github/workflows/release.yml:51</code></td><td>正式发布用 <code>npm install</code>（可改写 lockfile、解析出与锁文件不同的版本），与 ci.yml:35 的 <code>npm ci</code> 不一致 → 发布不可复现</td><td>S</td></tr>
+<tr><td>F17</td><td>low</td><td><code>package.json:18</code>（xlsx 0.18.5）</td><td>命中 CVE-2023-30533（原型污染）/ CVE-2024-22363（ReDoS），npm 上无修复版；且 <code>npm audit</code> 在本环境不可用</td><td>M</td></tr>
+<tr><td>F18</td><td>low</td><td><code>tsconfig.json:21-25</code></td><td><code>include</code> 里的 <code>*.html</code> 对 tsc 无意义；<code>@/*</code> 别名声明了但全项目 0 处使用</td><td>S</td></tr>
+<tr><td>F19</td><td>low</td><td><code>src/pages/Login.vue:13,15</code></td><td>同一模块 <code>../lib/auth</code> 重复 import 两条语句</td><td>S</td></tr>
+<tr><td>F20</td><td>low</td><td><code>src/mock/index.ts:661-675</code></td><td>未匹配路由返回 <strong>HTTP 200 + code 404</strong>（掩盖错误）且强制 200-500 ms 随机延迟</td><td>S</td></tr>
+<tr><td>F21</td><td>low</td><td><code>src/pages/teacher/TeacherApp.vue:578-587</code></td><td>下载 CSV 模板未 <code>URL.revokeObjectURL</code>（对比 <code>AdminApp.vue:1130</code> 已 revoke）</td><td>S</td></tr>
+<tr><td>F22</td><td>low</td><td>4 处 tab→loader 映射；<code>ParentApp.vue:226</code></td><td><code>switchTab</code> 的 if/else 链在四个页面重复 4 份；<code>ParentApp</code> 用类型断言绕过联合类型</td><td>M</td></tr>
+<tr><td>F23</td><td>low</td><td><code>src/components/BaseModal.vue:55-66</code>；<code>src/composables/useChart.ts:50-57</code></td><td>12 个弹窗实例各注册一个常驻 window keydown 监听；<code>body.style.overflow</code> 在并发弹窗下会被错误解锁；<code>onActivated/onDeactivated</code> 在无 <code>&lt;KeepAlive&gt;</code> 时是死分支</td><td>S</td></tr>
+<tr><td>F24</td><td>medium</td><td><code>src/lib/api.ts:73-76</code></td><td><code>Content-Length</code> 是 fetch 规范禁止的请求头 → 浏览器静默丢弃，注释声称的“兼容部分反代”从未生效（Node/undici 行为相反，实测保留）</td><td>S</td></tr>
+</tbody></table></div>
+<p>统计：<strong>blocker 1 / high 4 / medium 12 / low 7，共 24 条</strong>。</p>
+<hr>
+<h2 id="h-3-逐条发现详情">3. 逐条发现详情</h2>
+<h3 id="h-f1-ci-打出的-开发版-包内前端是-mock-构建-与包内-server-exe-永久失联-blocker">F1 —— CI 打出的“开发版”包内前端是 Mock 构建，与包内 <code>server.exe</code> 永久失联【blocker】</h3>
+<p><strong>位置</strong>：<code>.github/workflows/ci.yml:41-46</code>、<code>.github/workflows/ci.yml:105-146</code>、<code>.github/workflows/pages.yml:41-47</code>、<code>vite.config.ts:12-15</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="yaml"><code># ci.yml:41-46
+      - name: Build (Mock 模式，与 pages.yml 同参)
+        working-directory: frontend
+        env:
+          VITE_USE_MOCK: 'true'
+          VITE_BASE: '/campus-master/'
+        run: npm run build:no-typecheck</code></pre>
+<pre class="code" data-lang="yaml"><code># ci.yml:114-118 / 126-130（package job：把上面那份 dist 与 server.exe 打在一起）
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: release/frontend/dist
+...
+          cp config.json README.md release/</code></pre>
+<p><strong>问题</strong>：<code>VITE_USE_MOCK</code> 一旦为字符串 <code>'true'</code>，<code>src/lib/api.ts:58-60</code> 会把<strong>所有</strong> <code>/api/*</code> 请求交给 <code>mockRequest()</code>，前端只读写 <code>localStorage['campus_mock_db_v1']</code>。而 package job 同时塞进 <code>server.exe</code> + <code>config.json</code>（一个需要真实前端调用的 C++ 服务）。即：<strong>这份“开发版”产物里，后端永远收不到任何请求</strong>。5.5 节的实测进一步证明该开关没有中间态——<code>'true'</code> 时 34 个 mock 处理器与全部种子数据进产物，非 <code>'true'</code> 时整模块被剔除。</p>
+<p><strong>影响面</strong>：<code>ci.yml</code> 的 <code>package</code> job（push 到 main 时自动产出的 <code>campus-energy-station-dev.zip</code>）。<strong>不影响</strong> <code>release.yml</code>（第 53-55 行 <code>npm run build</code> 未设 <code>VITE_USE_MOCK</code>，走真实后端模式，mock 已被 tree-shaking 剔除），也不影响 GitHub Pages 演示站（<code>pages.yml</code> 的 mock 是刻意设计）。</p>
+<p><strong>建议改法</strong>：把 “Mock 演示构建” 与 “可发布构建” 拆成两个步骤/两个产物名：mock 那份只上传到 Pages；package job 改为下载一份 <code>VITE_BASE=/</code>、不设 <code>VITE_USE_MOCK</code> 的 dist（或直接在 package job 里重新 <code>npm run build</code>）。同时给 <code>vite.config.ts:14</code> 的默认值加断言（<code>env.VITE_USE_MOCK === 'true' ? 'true' : 'false'</code>）以防拼写错误。</p>
+<p><strong>预期收益</strong>：交付包恢复“开箱即用”；消除一类极难排查的“后端日志空无一物”故障。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f2-http-500-完全静默-api-ts-只处理-401-403-429-调用方只判-code-200-high">F2 —— HTTP 500 完全静默：<code>api.ts</code> 只处理 401/403/429，调用方只判 <code>code === 200</code>【high】</h3>
+<p><strong>位置</strong>：<code>src/lib/api.ts:94-127</code>；后端取证 <code>routes_admin.cpp:137-142</code>、<code>routes_static.cpp:60-66</code>；调用点 <code>AdminApp.vue:374-381</code>、<code>TeacherApp.vue:280-289</code>、<code>StudentApp.vue:135-143</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// api.ts:102-127
+  if (response.status === 401) { ... return json }        // 清本地态 + 跳登录
+  if (response.status === 403) { toast.error(msg); return json }
+  if (response.status === 429) { toast.warning(...); return json }
+  // 业务码非 200 但 HTTP 200：交由调用方处理，不打断
+  return json        // ← 500 / 502 / 404 全部落到这里</code></pre>
+<p>后端 500 <strong>带 JSON 体</strong>（因此 <code>response.json()</code> 成功、不会抛错、也不会有任何 toast）：</p>
+<pre class="code" data-lang="cpp"><code>// routes_admin.cpp:137-142（同形于 routes_student.cpp:205、routes_teacher.cpp:1025）
+        } catch (const std::exception&amp; e) {
+            Logger::error("商城 API 错误: " + std::string(e.what()));
+            json response = {{"code", 500}, {"msg", "服务器内部错误"}};
+            res.status = 500;
+            res.set_content(response.dump(), "application/json");
+        }</code></pre>
+<p>调用点只判业务码，<code>catch</code> 永不触发：</p>
+<pre class="code" data-lang="ts"><code>// AdminApp.vue:374-381
+async function loadUsers() {
+  try {
+    const res = await api.get&lt;User[]&gt;('/api/admin/users')
+    if (res.code === 200) users.value = res.data || []   // 500 时：静默保持旧值/空列表
+  } catch (e) { console.error('Load users error:', e) }
+}</code></pre>
+<pre class="code" data-lang="ts"><code>// StudentApp.vue:142 / 176 / 185 / 194 / 203 / 212 —— 注释与事实不符
+  } catch { /* api 层已提示 */ }</code></pre>
+<p><strong>问题</strong>：全项目 62 处 <code>res.code === 200/!== 200</code> 判据（<code>AdminApp</code> 26、<code>TeacherApp</code> 17、<code>StudentApp</code> 8、<code>ParentApp</code> 7、<code>auth.ts</code> 3、<code>Login.vue</code> 1）都建立在“非 200 一定有提示”的假设上，而这个假设只对 401/403/429 + 网络异常成立。真实后果分三种：</p>
+<ol>
+<li>HTTP 500 + JSON 体（最常见：后端 catch 分支）→ <strong>完全静默</strong>，用户看到列表不刷新、按钮无反应，连 <code>console.error</code> 都没有；</li>
+<li>HTTP 404（<code>routes_static.cpp:63</code> 返回 <code>text/plain</code>）→ <code>api.ts:96</code> 的 <code>response.json()</code> 抛错 → toast「服务器响应格式错误」（文案与真实原因无关）；</li>
+<li>mock 模式未匹配路由 → <code>mock/index.ts:672-675</code> 返回 HTTP 200 + <code>code:404</code> → <strong>完全静默</strong>。</li>
+</ol>
+<p><strong>影响面</strong>：四个角色页的全部读写操作（登录、用户/班级/角色/权限/商城 CRUD、积分、评价、导入导出）。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li><code>api.ts</code> 增加 5xx 兜底分支：<code>if (!response.ok &amp;&amp; response.status &gt;= 500) { toast.error(json?.msg || '服务器异常，请稍后重试'); return json }</code>（或统一抛 <code>ApiError</code>，由调用方 <code>catch</code> 一处处理）；</li>
+<li>把 62 处 <code>if (res.code === 200) {...} else { toast.error(res.msg || 'xx失败') }</code> 收敛为 <code>requestAction(api.get(...), { onOk, okMsg })</code> 包装器，让“失败必有提示”成为封装保证而不是每个调用点的自觉；</li>
+<li>修正 <code>StudentApp.vue</code> 里 6 处 <code>catch { /* api 层已提示 */ }</code> 的注释。</li>
+</ol>
+<p><strong>预期收益</strong>：服务器异常从“静默无反应”变成“可见的明确错误”，减少 24 处样板（配合 F8）。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f3-adminapp-vue-2626-行单文件-54-个-ref-10-个-computed-26-个-api-调用">F3 —— <code>AdminApp.vue</code> 2626 行单文件：54 个 ref / 10 个 computed / 26 个 API 调用点 / 12 个弹窗 / 7 个 tab【high】</h3>
+<p><strong>位置</strong>：<code>src/pages/admin/AdminApp.vue:1-2626</code>（script 1-1237，template 1239-2501，style 2503-2626）</p>
+<p><strong>证据（机械计数，<code>Select-String -AllMatches</code> 逐项复核）</strong></p>
+<div class="tw"><table>
+<thead><tr><th>指标</th><th>数量</th><th>关键行</th></tr></thead>
+<tbody>
+<tr><td>总行数</td><td>2626</td><td>script 1237 / template 1263 / style 124</td></tr>
+<tr><td><code>ref(</code></td><td>54</td><td>状态声明集中在 150-301</td></tr>
+<tr><td><code>computed(</code></td><td>10</td><td>304-367</td></tr>
+<tr><td><code>watch(</code></td><td>2</td><td>370-371（均为“搜索词变化→回到第 1 页”）</td></tr>
+<tr><td><code>api.get/post/put/delete</code> 调用点</td><td>26</td><td>376…1178</td></tr>
+<tr><td><code>BaseModal</code> 弹窗</td><td>12</td><td>1874,1940,2071,2133,2167,2196,2221,2250,2326,2374,2422,2462</td></tr>
+<tr><td><code>v-show</code> tab 区块</td><td>7</td><td>1252,1367,1460,1514,1557,1604,1766</td></tr>
+<tr><td><code>&lt;table&gt;</code></td><td>8</td><td>1407,1473,1570,1780,1839（tab 内）+ 1975,2021,2039（批量导入弹窗内）</td></tr>
+<tr><td><code>toast.success/error/warning/info()</code> 调用</td><td>75</td><td>贯穿全文件</td></tr>
+<tr><td><code>try {</code></td><td>27</td><td>—</td></tr>
+<tr><td><code>console.error(</code></td><td>25</td><td>—</td></tr>
+<tr><td><code>confirmDialog</code></td><td>8</td><td>533,805,890,996,1076,1167（+2 处 import/注释）</td></tr>
+</tbody></table></div>
+<p><strong>问题</strong>：7 个业务域（用户/班级/角色/权限/系统配置/商城/概览）挤在一个 SFC 里，互不相关的状态与函数共享同一作用域：<code>pageSize = 10</code> 与 <code>mallPageSize = 10</code>（176/264）各自硬编码；用户与商品两套分页派生值各写 4 个 computed（314-337）；12 个弹窗的 <code>showXxxDialog</code> 各配一套“打开赋值 / 关店重置”（如 553-606 的 <code>resetPassword</code>/<code>closeResetPasswordDialog</code> 共 12 行只为 4 个状态）。任何改动都要在 2600 行里重新建立上下文，且<strong>无法对单一 tab 做隔离测试</strong>（配合 F15）。</p>
+<p><strong>建议拆分方案（按收益排序，可作为独立 PR 分批落地）</strong></p>
+<ol>
+<li><code>src/pages/admin/tabs/AdminDashboard.vue</code>（1252-1363）——4 张 <code>StatCard</code> + 饼图。</li>
+<li><code>src/pages/admin/tabs/AdminUsers.vue</code>（1367-1456）+ <code>components/admin/UserFormModal.vue</code>（1874-1938）、<code>UserEditModal.vue</code>（2071-2131）、<code>ImportUsersModal.vue</code>（1940-2069，含 xlsx/pinyin 逻辑 616-745）。</li>
+<li><code>src/pages/admin/tabs/AdminClasses.vue</code>（1460-1510）+ <code>ClassFormModal.vue</code>（2326-2420，添加/编辑复用同一组件，用 <code>mode</code> prop 区分）。</li>
+<li><code>src/pages/admin/tabs/AdminRoles.vue</code>（1514-1553）+ 角色弹窗（2133-2165、2196-2219）。</li>
+<li><code>src/pages/admin/tabs/AdminPermissions.vue</code>（1557-1600）+ 权限弹窗（2167-2194、2221-2248）。</li>
+<li><code>src/pages/admin/tabs/AdminMall.vue</code>（1766-1868）+ 商品弹窗（2422-2498）。</li>
+<li><code>src/pages/admin/tabs/AdminSystem.vue</code>（1604-1762，含导入导出 1100-1202）。</li>
+<li>抽出 3 个 composable：<code>useAdminUsers()</code>（状态 173-195 + 304-327 + 数据加载）、<code>useAdminMall()</code>、<code>useAdminBatchImport()</code>（616-745）。</li>
+<li><code>AdminApp.vue</code> 只保留 <code>checkAuth</code> + <code>switchTab</code> 分发表（1204-1236）+ <code>&lt;component :is&gt;</code> 或 <code>v-show</code> 分发，预计降到 <strong>250-350 行</strong>。</li>
+</ol>
+<p><strong>预期收益</strong>：单文件从 2626 行降到 ~300 行；每个 tab 组件 150-300 行可独立阅读/测试；<code>UserFormModal</code> 复用后可删掉 3 处重复的表单重置代码；配合 F6 再删掉两套手写分页。<strong>成本 L（建议拆 4-6 个 PR）。</strong></p>
+<hr>
+<h3 id="h-f4-teacherapp-vue-1519-行-硬编码假评价数据被-ui-消费-空转请求-2-个-开发中-死按钮-hi">F4 —— <code>TeacherApp.vue</code> 1519 行：硬编码假评价数据被 UI 消费 + 空转请求 + 2 个“开发中”死按钮【high】</h3>
+<p><strong>位置</strong>：<code>src/pages/teacher/TeacherApp.vue:161-171</code>、<code>313-321</code>、<code>634-637</code>、<code>664-683</code>、<code>1078-1092</code></p>
+<p><strong>证据 1：硬编码 demo 数据被评价弹窗读取</strong></p>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:161-171
+const evaluationDimensions: EvalDimension[] = [
+  { id: 1, name: '德育', ... }, ... 5 项
+]
+const evaluations = ref&lt;Evaluation[]&gt;([
+  { id: 1, studentId: 1, dimensionId: 1, score: 85, comment: '表现良好' },
+  { id: 2, studentId: 1, dimensionId: 2, score: 90, comment: '学习认真' },
+])   // ← 生产代码里的假数据
+
+// TeacherApp.vue:634-637 —— 评价弹窗靠它回填“已有分数”
+function getStudentEvaluation(studentId: number | string, dimensionId: number): number | null {
+  const ev = evaluations.value.find(e =&gt; e.studentId === studentId &amp;&amp; e.dimensionId === dimensionId)
+  return ev ? ev.score : null
+}</code></pre>
+<p>而 <code>evaluations</code> <strong>永远不会被接口填充</strong>：唯一可能写入它的 <code>loadEvaluations()</code> 根本不赋值。</p>
+<p><strong>证据 2：空转 API</strong></p>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:313-321
+async function loadEvaluations() {
+  // 原始代码调用 /api/teacher/evaluation/dimensions 但赋值到不存在的 this.dimensions，
+  // 实际未使用返回值。此处保留 API 调用以维持网络行为。
+  try {
+    await api.get('/api/teacher/evaluation/dimensions')   // 返回值被丢弃
+  } catch (e) { console.error('Load evaluations error:', e) }
+}</code></pre>
+<p>它在 <code>onMounted</code>（729）与每次切到评价 tab（705）和提交评价后（651）都被调用 → <strong>纯浪费往返</strong>，并把 <code>/api/teacher/evaluation/dimensions</code> 变成事实上的死端点。</p>
+<p><strong>证据 3：未实现但可点的按钮</strong></p>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:664-683
+function editEvaluation(student: Student) {          // 664: 'student' 声明未使用
+  toast.info('编辑评价功能开发中...')
+}
+async function deleteEvaluation(student: Student) {
+  const ok = await confirmDialog({ message: `确定要删除学生 ${student.name} 的评价吗？`, ... })
+  if (!ok) return
+  try {
+    // 这里需要根据实际的评价ID来调用删除API
+    // 暂时使用模拟数据
+    toast.info('删除评价功能开发中...')               // 用户确认“删除”后什么也没发生
+  } catch (e) { ... }
+}</code></pre>
+<p>模板 <code>TeacherApp.vue:1078-1092</code> 有两个真实可点的按钮绑定它们。</p>
+<p><strong>问题</strong>：三处叠加后，教师端的“学生评价”页呈现的是<strong>假数据 + 假操作</strong>：维度分值可能回填出 85/90 的陈旧分数，删除操作确认后静默失败。这类“看起来能用其实是演的”功能比明显的 TODO 更危险（演示/验收时难以察觉）。</p>
+<p><strong>影响面</strong>：教师端「学生评价」tab（<code>TEACHER_NAV[3]</code>）。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>删除 <code>TeacherApp.vue:168-171</code> 的硬编码 <code>evaluations</code> 初始值，改为 <code>ref&lt;Evaluation[]&gt;([])</code>；</li>
+<li>若需要回填，让 <code>loadEvaluations()</code> 真正请求 <code>/api/teacher/evaluation?studentId=</code> 并按学生维度填充；否则删掉 <code>getStudentEvaluation</code>，<code>evaluateStudent</code>（627-632）已把 <code>scores</code> 清空（629）——两者逻辑本来就矛盾；</li>
+<li><code>editEvaluation</code>/<code>deleteEvaluation</code>：在拿到真实评价 ID 之前，直接 <code>disabled</code> + <code>title="暂未开放"</code>，不要提供会“成功确认但无动作”的路径；</li>
+<li>同 F3 的拆分方式，把评价 tab 拆成 <code>tabs/TeacherEvaluation.vue</code>，<code>TeacherApp.vue</code>（1519 行）目标 ≤ 400 行。</li>
+</ol>
+<p><strong>成本 L。</strong></p>
+<hr>
+<h3 id="h-f5-真实类型安全水位-apiresponse-索引签名-any-且两项编译检查关闭掩盖-26-个错误-high">F5 —— 真实类型安全水位：<code>ApiResponse&lt;T = any&gt;</code> + 索引签名 <code>any</code>，且两项编译检查关闭掩盖 26 个错误【high】</h3>
+<p><strong>位置</strong>：<code>src/lib/api.ts:19-24,131-134</code>；<code>tsconfig.json:14-16</code>；<code>src/mock/index.ts:213,661-665</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// api.ts:19-24
+export interface ApiResponse&lt;T = any&gt; {
+  code: number
+  msg?: string
+  data?: T
+  [key: string]: any          // ← 任意字段访问都合法，拼写错误不再报错
+}
+// api.ts:131-134 —— 便捷方法默认 T = any
+export const api = {
+  get: &lt;T = any&gt;(url: string) =&gt; apiRequest&lt;T&gt;('GET', url),
+  post: &lt;T = any&gt;(url: string, data?: any) =&gt; apiRequest&lt;T&gt;('POST', url, data),
+  ...
+}</code></pre>
+<pre class="code" data-lang="json"><code>// tsconfig.json:14-16
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,</code></pre>
+<p><strong>实测水位（1.3 节 ⑥ 的真实输出）</strong></p>
+<div class="tw"><table>
+<thead><tr><th>配置</th><th>错误数</th><th>关键样例</th></tr></thead>
+<tbody>
+<tr><td>基线 <code>npm run typecheck</code>（CI 门禁同款）</td><td><strong>0</strong></td><td>—</td></tr>
+<tr><td><code>+noUnusedLocals +noUnusedParameters</code></td><td><strong>7</strong></td><td><code>TeacherApp.vue(664,25): 'student' is declared but its value is never read</code>；mock/index.ts 6 处未使用形参</td></tr>
+<tr><td><code>+noUncheckedIndexedAccess</code></td><td><strong>19</strong></td><td><code>AdminApp.vue(648,31): Type 'undefined' cannot be used as an index type</code>（<code>wb.Sheets[wb.SheetNames[0]]</code>）；<code>AdminApp.vue(350,17): 'd.value' is possibly 'undefined'</code></td></tr>
+<tr><td>三项全开</td><td><strong>26</strong></td><td>mock 12 / student 6 / admin 5 / teacher 2 / parent 1</td></tr>
+</tbody></table></div>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><strong>响应体全程无类型约束</strong>。69 个调用点里只有 <strong>34 处</strong>写了显式泛型，<strong>26 处</strong>未标注（<code>AdminApp</code> 16、<code>TeacherApp</code> 9、<code>ParentApp</code> 1），直接落到 <code>ApiResponse&lt;any&gt;</code>，例如 <code>api.get('/api/teacher/evaluation/dimensions')</code>（TeacherApp:317）、<code>api.get('/api/admin/export')</code>（AdminApp:1120）、<code>api.post('/api/admin/users', payload)</code>（AdminApp:482）；写操作请求体又有 <code>payload: Record&lt;string, any&gt;</code>（AdminApp:473、506）进一步逃逸。写错 <code>res.data.xxx</code> 字段名不会有任何提示。</li>
+<li>显式 <code>any</code> 数量看起来少（实测 <code>api.ts</code> <strong>11 处</strong> = <code>ApiResponse&lt;T = any&gt;</code>、<code>[key: string]: any</code>、<code>apiRequest&lt;T = any&gt;</code>、<code>data?: any</code>、<code>api.get/post/put/delete</code> 的 6 个默认泛型与形参；<code>mock/index.ts</code> <strong>3 处</strong> = <code>Handler</code> 的 <code>body: any</code>、<code>mockRequest&lt;T = any&gt;</code>、<code>data?: any</code>）<strong>不代表安全</strong>——真正的问题在默认泛型与索引签名，它们让 <code>any</code> 变成默认值而非例外。</li>
+<li><strong>CI 门禁看不到上面 26 个错误</strong>：<code>tsconfig.json:15-16</code> 关掉两项后，<code>vue-tsc</code> 只报“类型不匹配”，不报“死变量/可能是 undefined”。<code>AdminApp.vue:648</code> 的 <code>wb.SheetNames[0]</code> 在空工作簿场景下正是运行期 <code>TypeError</code> 的经典来源。</li>
+</ol>
+<p><strong>影响面</strong>：全项目（34 个端点的请求/响应契约、xlsx 解析、图表数据）。</p>
+<p><strong>建议改法</strong>（按投入产出排序）：</p>
+<ol>
+<li><code>ApiResponse&lt;T = unknown&gt;</code> 并删掉 <code>[key: string]: any</code> 索引签名（保留 <code>msg?: string</code>）；顺手把默认泛型从 <code>any</code> 收紧到 <code>unknown</code>，强迫每个调用点写清 <code>api.get&lt;User[]&gt;</code>（现成 30 处已是正确写法，可直接照抄）。</li>
+<li>新增 <code>src/types/api.ts</code>，为 34 个端点各写一份响应 DTO（<code>AdminUsersRes = { code: 200; data: User[] }</code>），至少覆盖写操作。</li>
+<li><code>tsconfig.json:15</code> 改 <code>noUnusedLocals: true</code>（先按实验清单修 7 处，成本约 10 分钟——<code>TeacherApp.vue:664</code> 改为 <code>function editEvaluation()</code> 即可）。</li>
+<li><code>noUncheckedIndexedAccess</code> 可放到下一批（19 处）。</li>
+<li><code>mock/index.ts:213</code> 的 <code>type Handler = (db, body: any, params) =&gt; ApiResponse</code> 改为 <code>body: unknown</code> + 各 handler 内窄化。</li>
+</ol>
+<p><strong>预期收益</strong>：编译期即可捕获字段拼写错误与潜在 <code>undefined</code>；把 26 个已知隐患变成显式待办。<strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f6-现成-usepagination-是死代码-三个页面各写一遍分页派生逻辑-medium">F6 —— 现成 <code>usePagination</code> 是死代码，三个页面各写一遍分页派生逻辑【medium】</h3>
+<p><strong>位置</strong>：<code>src/composables/usePagination.ts:1-67</code>（零引用）；<code>src/pages/admin/AdminApp.vue:314-337</code>；<code>src/pages/teacher/TeacherApp.vue:215-222</code></p>
+<p><strong>证据</strong></p>
+<pre class="code"><code>### 全项目符号检索（usePagination）
+  Pagination.vue:3   * 分页控件 —— 配合 usePagination composable 使用     ← 仅注释
+  Pagination.vue:6   *   const { state, totalPages, changePage } = usePagination()   ← 仅注释
+  usePagination.ts:5 *   ...                                              ← 自身文档
+  usePagination.ts:16 export function usePagination(options: PaginationOptions = {}) {   ← 定义
+（0 处 import）</code></pre>
+<pre class="code" data-lang="ts"><code>// AdminApp.vue:314-337 —— 手写第 1 套（用户）
+const pagedUsers = computed(() =&gt; {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredUsersList.value.slice(start, start + pageSize)
+})
+const userTotalPages = computed(() =&gt; Math.ceil(filteredUsersList.value.length / pageSize) || 1)
+const userStartIndex = computed(() =&gt; filteredUsersList.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize + 1)
+const userEndIndex = computed(() =&gt; Math.min(currentPage.value * pageSize, filteredUsersList.value.length))
+// 329-337 —— 手写第 2 套（商城），与上面 4 个 computed 逐行同构，只是换了变量名</code></pre>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:215-222 —— 手写第 3 套（学生），与上面同构
+const filteredStudents = computed(() =&gt; { const start = (currentPage.value - 1) * pageSize; ... })
+const totalPages = computed(() =&gt; Math.ceil(filteredStudentsList.value.length / pageSize) || 1)
+const startIndex = computed(() =&gt; ...)
+const endIndex = computed(() =&gt; ...)</code></pre>
+<p><strong>问题</strong>：<code>usePagination.ts</code> 已实现完全相同的 6 个派生值（<code>totalPages/hasNext/hasPrev/startIndex/endIndex/setTotal</code>）且带<strong>越界回退</strong>（43 行：删除最后一页最后一条后自动回退页码）——手写版<strong>没有</strong>这个回退，是实际的行为差异（删光末页后会出现空列表页）。三个页面共复制 12 个 computed。</p>
+<p><strong>建议改法</strong>：<code>Pagination.vue</code> 保持纯展示组件（现在已是），三个页面改为 <code>const { state, totalPages, startIndex, endIndex, changePage, setTotal } = usePagination({ pageSize: 10 })</code>，列表过滤后调用 <code>setTotal(filtered.length)</code>；给 <code>usePagination</code> 补一个单元测试（这也是 F15 的起步样例：67 行纯逻辑，测试成本极低）。顺带修掉 <code>AdminApp.vue:370-371</code> 两个 watch 直接改 <code>state.currentPage = 1</code> 的重复。</p>
+<p><strong>预期收益</strong>：删 12 个 computed ≈ 60 行；获得越界回退行为；<code>usePagination.ts</code> 从死代码变成有测试覆盖的公共设施。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f7-8-处-设计了但从未接线-的导出-死代码-medium">F7 —— 8 处“设计了但从未接线”的导出（死代码）【medium】</h3>
+<p><strong>位置与证据（全项目符号检索，排除字体）</strong></p>
+<div class="tw"><table>
+<thead><tr><th>符号</th><th>定义位置</th><th>引用数</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>usePagination()</code></td><td><code>composables/usePagination.ts:16</code></td><td>0</td><td>见 F6</td></tr>
+<tr><td><code>useTheme()</code></td><td><code>lib/theme.ts:85</code></td><td>0</td><td>四个页面都直接写 <code>THEMES.rose/teal/emerald/indigo</code></td></tr>
+<tr><td><code>ROLE_THEME</code></td><td><code>lib/theme.ts:90-95</code></td><td>0</td><td>注释写着“用于 AppLayout 自动选色”，但 AppLayout 只接 <code>theme</code> prop</td></tr>
+<tr><td><code>NavSection</code></td><td><code>lib/navConfig.ts:18-22</code></td><td>0</td><td>侧边栏无“分区标题”结构</td></tr>
+<tr><td><code>resetMockDB()</code></td><td><code>mock/index.ts:690-693</code></td><td>0</td><td>注释“开发调试用”，无任何调用入口</td></tr>
+<tr><td><code>showToast()</code></td><td><code>composables/useToast.ts:50-52</code></td><td>0</td><td>注释“替换 alert() 的最小改动写法”，实际全项目统一用 <code>toast.*</code></td></tr>
+<tr><td><code>formatRelative()</code></td><td><code>lib/format.ts:40-54</code></td><td>0（仅 <code>main.ts:26</code> 注册）</td><td>连带 <code>env.d.ts:15</code> 的 <code>$formatRelative</code> 类型声明、<code>main.ts:13,17,26</code> 三处注册代码都是死链</td></tr>
+<tr><td><code>useAuth()</code></td><td><code>lib/auth.ts:157-159</code></td><td>0</td><td>四个页面都直接从 <code>lib/auth</code> 具名导入</td></tr>
+</tbody></table></div>
+<p><strong>问题</strong>：<code>useTheme</code>/<code>ROLE_THEME</code>/<code>NavSection</code> 会让读者以为存在“主题/导航自动配置”机制；<code>formatRelative</code> 那条链尤其误导——<code>main.ts:26</code> 把它注册成全局属性，<code>env.d.ts:15</code> 为它写类型，模板里却 0 处使用（全项目 <code>$formatDateTime</code>/<code>$formatDate</code>/<code>$formatRelative</code> 的模板使用数也是 0，页面统一 <code>import { formatDateTime }</code> 后局部调用）。</p>
+<p><strong>建议改法</strong>：一次性删除 8 处导出（以及 <code>main.ts:13,17,26</code>、<code>env.d.ts:13-15</code> 的对应注册与声明，共约 20 行）；<code>resetMockDB</code> 若确实要用，就接一个开发态隐藏按钮或 <code>window.__resetMock</code>。删除后请把 <code>noUnusedLocals</code> 打开（F5），防止再长回来。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f8-错误处理样板-24-处重复-四个页面策略互不一致-medium">F8 —— 错误处理样板 24 处重复 + 四个页面策略互不一致【medium】</h3>
+<p><strong>位置</strong>：<code>AdminApp.vue</code>（16 处）、<code>TeacherApp.vue</code>（8 处）、<code>ParentApp.vue</code>、<code>StudentApp.vue</code></p>
+<p><strong>证据</strong></p>
+<pre class="code"><code>### toast.error('网络错误，请稍后重试') 出现次数
+src\pages\admin\AdminApp.vue             16
+src\pages\teacher\TeacherApp.vue          8
+### console.error( 出现次数
+src\pages\admin\AdminApp.vue             25
+src\pages\teacher\TeacherApp.vue         18
+src\pages\parent\ParentApp.vue            7
+src\mock\index.ts                         1
+### try { 出现次数（全项目 68）
+admin 27 / teacher 18 / student 8 / parent 7 / api 2 / auth 2 / mock 2 / login 2</code></pre>
+<pre class="code" data-lang="ts"><code>// AdminApp.vue:494-497（同形样板 ×16）
+  } catch (e) {
+    console.error('Add user error:', e)
+    toast.error('网络错误，请稍后重试')
+  }</code></pre>
+<pre class="code" data-lang="ts"><code>// 而 ParentApp.vue:131-134 是另一种写法：catch 里 console.error + 语义化 toast
+  } catch (e) {
+    console.error('加载子女信息失败:', e)
+    toast.error('网络错误，无法获取子女信息')
+  }</code></pre>
+<pre class="code" data-lang="ts"><code>// StudentApp.vue:142 又是第三种：完全静默，依赖“api 层已提示”
+  } catch { /* api 层已提示 */ }</code></pre>
+<p><strong>问题</strong>：同一件事（一次请求失败）有四种处理风格；每种风格在 4 个页面各复制一遍（全项目 68 个 <code>try {</code>）。改动 toast 文案或接入错误上报要改 68 个块。</p>
+<p><strong>建议改法</strong>：在 <code>lib/api.ts</code> 增加 <code>export async function callApi&lt;T&gt;(p: Promise&lt;ApiResponse&lt;T&gt;&gt;, opts?: { okMsg?: string; errMsg?: string }): Promise&lt;T | null&gt;</code>，内部统一 <code>try/catch + code 判定 + toast</code>（同时解决 F2）；页面侧降级为 <code>const users = await callApi(api.get&lt;User[]&gt;('/api/admin/users'))</code>。分页/tab 的 <code>console.error</code> 只保留在 <code>api</code> 层一处。</p>
+<p><strong>预期收益</strong>：删掉 24 处 catch 样板（约 100 行），并让 62 处业务码判据的“失败必有提示”由封装保证。<strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f9-首屏串行请求瀑布-6-7-2-次串行往返-同项目已有正确写法-medium">F9 —— 首屏串行请求瀑布：6/7/2 次串行往返；同项目已有正确写法【medium】</h3>
+<p><strong>位置</strong>：<code>AdminApp.vue:1225-1236</code>、<code>TeacherApp.vue:722-733</code>、<code>ParentApp.vue:113-114</code>；反例 <code>StudentApp.vue:274-281</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// AdminApp.vue:1225-1236 —— 6 个 await 顺序执行
+onMounted(async () =&gt; {
+  const user = await checkAuth(1)
+  if (!user) return
+  userInfo.value = { ...user }
+  await loadUsers(); await loadRoles(); await loadPermissions()
+  await loadDashboard(); await loadProducts(); await loadExchangeRecords()
+  nextTick(() =&gt; dashboardChartRef.value?.resize())
+})</code></pre>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:726-732 —— 7 个 await 顺序执行
+  await loadMyClasses(); await loadStudents(); await loadPointsRecords(); await loadEvaluations()
+  await loadDashboard(); await loadRecentActivities(); await loadParentMessages()</code></pre>
+<pre class="code" data-lang="ts"><code>// StudentApp.vue:274-281 —— 同一项目里的正确写法（6 个并发）
+  await Promise.all([fetchUserInfo(), fetchHistory(), fetchMallItems(), fetchLeaderboard(), fetchEvaluation(), fetchRedemptions()])</code></pre>
+<p>（<code>TeacherApp.vue:336-339</code>、<code>StudentApp.vue:147-150</code>、<code>StudentApp.vue:236</code> 也已经是 <code>Promise.all</code>。）</p>
+<p><strong>问题</strong>：假设单次 RTT 100 ms，管理员首屏 = <code>checkAuth</code> + 6 × 100 ms ≈ 700 ms 纯等待（本机部署可忽略，校园局域网/远程部署会成倍放大）；教师端 7 次。除 <code>checkAuth</code> 必须最先执行（决定是否跳转）外，其余请求互不依赖，完全可以并发。<code>ParentApp.vue:113-114</code> 的 <code>await loadChildInfo(); await loadActiveTabData()</code> 同理。</p>
+<p><strong>建议改法</strong>：<code>await Promise.all([loadUsers(), loadRoles(), ...])</code>（保留 <code>checkAuth</code> 在最前）。若后端并发能力有限（见后端审计报告的连接/事务问题），至少把“当前 tab 必需”的请求优先。</p>
+<p><strong>预期收益</strong>：首屏等待从 O(n) 降到 O(1)。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f10-系统配置-tab-的-4-个按钮是纯-toast-假实现-medium">F10 —— “系统配置”tab 的 4 个按钮是纯 toast 假实现【medium】</h3>
+<p><strong>位置</strong>：<code>src/pages/admin/AdminApp.vue:1100-1115</code>（函数）与模板 <code>1634</code>、<code>1661</code>、<code>1688</code>、<code>1691</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// AdminApp.vue:1100-1115
+function saveSystemConfig() { toast.success('系统配置保存成功！') }
+function saveSecurityConfig() { toast.success('安全配置保存成功！') }
+function saveBackupConfig() { toast.success('备份配置保存成功！') }
+function backupNow() { toast.info('备份已开始，请稍后查看备份结果') }</code></pre>
+<pre class="code" data-lang="html"><code>&lt;!-- 模板 1622-1630：这三个输入框绑定的 systemConfig 只活在前端 ref 里 --&gt;
+&lt;input v-model="systemConfig.systemName" ...&gt;
+&lt;select v-model="backupConfig.frequency" ...&gt;
+...
+&lt;button type="button" @click="saveSystemConfig" ...&gt;保存配置&lt;/button&gt;   &lt;!-- 1634 --&gt;
+&lt;button type="button" @click="backupNow" ...&gt; 立即备份 &lt;/button&gt;        &lt;!-- 1688 --&gt;</code></pre>
+<p><strong>问题</strong>：<code>systemConfig</code>/<code>securityConfig</code>/<code>backupConfig</code>（239-252）三个 ref 既没有 <code>loadXxx</code> 读取、也没有保存接口（该文件 26 个调用点里没有 <code>/api/admin/config</code>），刷新即丢失；「立即备份」提示“已开始”但后端无对应调用。管理员会以为配置生效了。</p>
+<p><strong>建议改法</strong>：要么接上后端（<code>GET/PUT /api/admin/config</code>、<code>POST /api/admin/backup</code>），要么把这个 tab 标注为“暂未开放”并禁用按钮（<code>disabled</code> + <code>title</code>），与 F4 的第 3 条同一处理原则。</p>
+<p><strong>成本 S（禁用路线）/ M（接线路线）。</strong></p>
+<hr>
+<h3 id="h-f11-包体-echarts-全量-xlsx-pinyin-pro-静态引入-字体-fontawesome-资源约-5-">F11 —— 包体：echarts 全量 + xlsx + pinyin-pro 静态引入，字体/FontAwesome 资源约 5.8 MB【medium】</h3>
+<p><strong>位置</strong>：<code>src/composables/useChart.ts:10</code>；<code>src/pages/admin/AdminApp.vue:15,16</code>；<code>src/main.ts:2-6</code>；<code>index.html</code> 等 5 个入口</p>
+<p><strong>证据（命令实测，见 1.3 ⑦）</strong></p>
+<pre class="code"><code>### echarts
+echarts.min.js        1009.9 KB      # 全量
+echarts.esm.js        2967.4 KB
+### xlsx
+xlsx.js                815.8 KB      # 仅 AdminApp 的批量导入用
+### pinyin-pro
+index.js               315.9 KB      # 仅 AdminApp 生成账号用
+### 字体（src/assets/fonts）
+Noto Sans SC   101 个子集  4410.5 KB
+Fraunces         6 个子集   314.0 KB      → 合计 107 文件 4724.4 KB
+fonts.css                  113.0 KB      # 107 条 @font-face，全局 import
+### FontAwesome (@fortawesome/fontawesome-free)
+all.min.css                 72.2 KB
+webfonts（4×woff2 + 4×ttf）999.0 KB      # all.min.css 同时引用 .ttf 与 .woff2
+### 实际用到的图标类名（去重） = 81</code></pre>
+<pre class="code" data-lang="ts"><code>// useChart.ts:10 —— 全量命名空间导入，阻断 echarts 的 tree-shaking
+import * as echarts from 'echarts'
+// AdminApp.vue:15-16 —— 只在批量导入（631-649）与账号生成（670-677）时用，却是静态 import
+import * as XLSX from 'xlsx'
+import { pinyin } from 'pinyin-pro'</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><code>echarts.min.js</code> 1.0 MB（gzip 约 340 KB）；项目只用了 pie/bar/line/radar 四种图（<code>AdminApp.vue:340-367</code>、<code>TeacherApp.vue:225-273</code>、<code>StudentApp.vue:101-132</code>）。ECharts 官方给出 <code>echarts/core</code> + <code>use([...])</code> 的按需方案（<code>node_modules/echarts/core.js</code> 存在），而 <code>import * as echarts from 'echarts'</code> 把全部图表类型都留在包里。<code>TeacherApp.vue:12</code>、<code>AdminApp.vue:14</code>、<code>StudentApp.vue:10</code> 的 <code>import type { EChartsOption }</code> 是类型导入，不产生运行时体积——真正的元凶是 <code>useChart.ts:10</code>，而它被 <code>BaseChart.vue:24</code> 引入，即<strong>所有含图表的页面</strong>。</li>
+<li>管理员页额外背 815 KB（xlsx）+ 316 KB（pinyin-pro），只在“批量导入/重置密码”用；<code>import()</code> 动态引入即可从首屏拆出。</li>
+<li>资源面：4.72 MB 字体 + 999 KB FontAwesome 字体全部进产物；<code>all.min.css</code> 同时 <code>url()</code> 了 <code>.ttf</code> 与 <code>.woff2</code> 两种格式（Vite 会原样发两份）。字体确实用了 <code>unicode-range</code>（107 条齐全），浏览器按需拉取，所以<strong>运行时开销可控，但部署产物（zip/Pages 站点）会多出约 5.8 MB</strong>，CI artifact 与 Pages 部署带宽都按这个量级计费。</li>
+<li>81 个图标换来 72 KB CSS + 999 KB 字体（含 4 个 <code>.ttf</code> 冗余格式）。已逐一核对：81 个类名在 FA6 免费版 <code>all.min.css</code> 中均存在（无“幽灵图标”）。</li>
+</ol>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li><code>useChart.ts</code> 改为按需注册：</li>
+</ol>
+<pre class="code" data-lang="ts"><code>   import * as echarts from 'echarts/core'
+   import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
+   import { TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
+   import { CanvasRenderer } from 'echarts/renderers'
+   echarts.use([PieChart, BarChart, LineChart, RadarChart, TooltipComponent, LegendComponent, GridComponent, RadarComponent, CanvasRenderer])</code></pre>
+<ol>
+<li><code>AdminApp.vue</code> 把 <code>import * as XLSX</code> 与 <code>pinyin</code> 改为 <code>const XLSX = await import('xlsx')</code> / <code>const { pinyin } = await import('pinyin-pro')</code>（两处使用点都是异步函数内，改动很小）。</li>
+<li>字体：只保留实际用到的字重区间；<code>Noto Sans SC</code> 的 101 个子集若目标是校园内网，可考虑按需裁剪或在部署文档里说明首次中文渲染会按需拉取 ~4.4 MB。FontAwesome 可换成按需 SVG（或删掉 <code>.ttf</code> 的 <code>@font-face</code> 分支）。</li>
+<li>在 CI 里加体积门槛：<code>vite build</code> 后用脚本断言 <code>dist/**/*.js</code> 总量与单个 chunk 上限（这样即使没有测试也能防住回归）。</li>
+</ol>
+<p><strong>预期收益</strong>：首屏 JS 预计减少 1-2 MB（echarts 按需 + xlsx/pinyin 拆出），产物整体缩小约 1 MB（去掉 ttf）。<strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f12-全局确认框的-esc-enter-实际不生效-且缺-dialog-语义-medium">F12 —— 全局确认框的 Esc/Enter 实际不生效，且缺 dialog 语义【medium】</h3>
+<p><strong>位置</strong>：<code>src/components/ConfirmDialog.vue:22-26,32</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="html"><code>&lt;!-- ConfirmDialog.vue:32 —— keydown 只绑在这个 div 上 --&gt;
+&lt;div v-if="state.visible" class="modal-backdrop" @click.self="answer(false)" @keydown="onKey" tabindex="0"&gt;</code></pre>
+<pre class="code" data-lang="ts"><code>// ConfirmDialog.vue:22-26
+function onKey(e: KeyboardEvent) {
+  if (!state.visible) return
+  if (e.key === 'Escape') answer(false)
+  if (e.key === 'Enter') answer(true)
+}</code></pre>
+<p>对照 <code>BaseModal.vue:62-66</code> 的正确写法（全局监听）：</p>
+<pre class="code" data-lang="ts"><code>onMounted(() =&gt; window.addEventListener('keydown', onKey))
+onBeforeUnmount(() =&gt; { window.removeEventListener('keydown', onKey); document.body.style.overflow = '' })</code></pre>
+<p><strong>问题</strong>：<code>ConfirmDialog.vue</code> 全文件没有 <code>window.addEventListener</code>（全项目检索 <code>window.addEventListener</code> 只有 <code>BaseModal.vue:62</code>、<code>useChart.ts:47,51</code>）。弹框出现时没有任何代码把焦点移进去（虽写了 <code>tabindex="0"</code>），<code>keydown</code> 事件的 target 是 <code>document.body</code>，不会冒泡到该 div → <strong>Esc/Enter 基本不会触发</strong>（除非用户恰好 Tab 进这个 div，而此时焦点又落在按钮上）。另外缺少 <code>role="dialog"</code>/<code>aria-modal="true"</code>/<code>aria-labelledby</code>，也没有焦点陷阱——<code>BaseModal.vue:73-112</code> 同样缺（只有 <code>ToastContainer.vue:27</code> 写了 <code>aria-live="polite"</code>、<code>ToastContainer.vue:34</code> 写了 <code>role="alert"</code>）。</p>
+<p><strong>影响面</strong>：全项目 9 处 <code>confirmDialog</code> 真实调用点（<code>AdminApp</code> 6 处 533/805/890/996/1076/1167、<code>TeacherApp</code> 2 处 524/669、<code>StudentApp</code> 1 处 225）的键盘可用性；屏幕阅读器用户无法识别弹框（<code>ConfirmDialog.vue</code> 与 <code>BaseModal.vue</code> 均无 <code>role="dialog"</code>/<code>aria-modal</code>）。</p>
+<p><strong>建议改法</strong>：把 <code>onKey</code> 挂到 <code>window</code>（<code>watch(state.visible)</code> 内 add/remove），弹框打开时聚焦确认按钮，关闭后把焦点还给触发元素；补 <code>role="dialog" aria-modal="true" :aria-labelledby</code>；<code>BaseModal.vue</code> 同样处理。可顺带修 F23 的 body overflow 竞态（用一个全局 overlay 计数替代直接赋值）。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f13-登录页明文内置-真实默认口令-随所有构建产物分发-medium">F13 —— 登录页明文内置<strong>真实默认口令</strong>，随所有构建产物分发【medium】</h3>
+<p><strong>位置</strong>：<code>src/pages/Login.vue:181-208</code>；交叉证据 <code>.github/workflows/release.yml:164-167</code>、<code>.github/workflows/pages.yml:73-77</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="html"><code>&lt;!-- Login.vue:179-195 --&gt;
+&lt;p class="text-center text-xs ..."&gt;演示账号 · 一键填充&lt;/p&gt;
+  &lt;button type="button" @click="fillTestAccount('admin', 'admin123')" ...&gt;管理员&lt;/button&gt;
+  &lt;button type="button" @click="fillTestAccount('teacher', 'teacher123')" ...&gt;教师&lt;/button&gt;
+  &lt;button type="button" @click="fillTestAccount('student', 'student123')" ...&gt;学生&lt;/button&gt;
+  &lt;button type="button" @click="fillTestAccount('parent', 'parent123')" ...&gt;家长&lt;/button&gt;</code></pre>
+<pre class="code" data-lang="yaml"><code># release.yml:164-167（正式 Release notes）
+          ## 默认账号
+          - 管理员：`admin` / `admin123`
+          - 教师：`teacher` / `teacher123`
+          - 学生：`student` / `student123`</code></pre>
+<p><strong>问题</strong>：这不是“假数据”，而是产品<strong>真实默认凭据</strong>（正式 Release 文档确认）。通过 <code>index.html</code>（登录入口）进入的任何人都能一键拿到管理员口令——如果部署后没有人改密码（校园项目常见），就是完全开放的管理后台。口令以明文字面量进了所有 bundle（含生产构建，与 mock 无关，因此<strong>不受 tree-shaking 保护</strong>）。</p>
+<p><strong>影响面</strong>：所有入口的登录页（<code>index.html</code> → <code>src/entries/login.ts</code> → <code>Login.vue</code>）。</p>
+<p><strong>建议改法</strong>（三选一，按代价递增）：</p>
+<ol>
+<li>用 <code>import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true'</code> 包住整块（181-208 与 <code>fillTestAccount</code>），仅在 Pages 演示构建里开；真实构建直接不出现在 DOM 与 JS 里；</li>
+<li>保留按钮但不带密码（只填用户名），或从后端 demo 接口取；</li>
+<li>首次登录强制改密（后端 + 前端流程），并在部署文档里删除默认口令段落。</li>
+</ol>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f14-csrf_token-与-userinfo-存-localstorage-的风险评估-含缓解事实-medium">F14 —— csrf_token 与 userInfo 存 localStorage 的风险评估（含缓解事实）【medium】</h3>
+<p><strong>位置</strong>：<code>src/lib/api.ts:27-39</code>、<code>src/lib/auth.ts:47-67</code>、<code>src/lib/api.ts:105-110</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// api.ts:27-39
+function getCsrfToken(): string { return localStorage.getItem('csrf_token') || '' }
+export function setCsrfToken(token: string) { if (token) localStorage.setItem('csrf_token', token) }
+export function clearCsrfToken() { localStorage.removeItem('csrf_token') }</code></pre>
+<pre class="code" data-lang="ts"><code>// auth.ts:59-67 / 125-151
+function saveUserInfo(info: UserInfo) { Object.assign(userInfo, info); localStorage.setItem('userInfo', JSON.stringify(info)) }
+...
+export async function checkAuth(roleId: number) {
+  const local = loadFromStorage()                 // 127：仅用于“无本地态直接跳登录”的快速短路
+  if (!local) { location.href = ... }
+  const res = await apiRequest&lt;UserInfo&gt;('GET', '/api/auth/me')   // 134：真正的鉴权来源
+  if (res.code !== 200 || !res.data) { clearUserInfo(); clearCsrfToken(); location.href = ... }
+  saveUserInfo(res.data)                          // 143：以服务端数据覆盖本地（防篡改）</code></pre>
+<p><strong>问题</strong>：本地存储的 <code>csrf_token</code> 是双提交模式的前端副本，任何同源脚本（XSS/供应链）都能读取并携带它发起写请求，这削弱了 CSRF 防护的“攻击者读不到 token”前提。<code>userInfo</code> 存 localStorage 则带来“本地态可被伪造”的假象（虽然 <code>checkAuth</code> 会以 <code>/api/auth/me</code> 的结果覆盖）。</p>
+<p><strong>已核实的缓解事实（因此定级 medium 而非 high）</strong>：</p>
+<ul>
+<li>全项目 <code>v-html</code>/<code>innerHTML</code>/<code>eval</code>/<code>new Function</code> 使用数 <strong>0</strong>（<code>grep</code> 全量确认，含 <code>KeepAlive</code>=0 的同批扫描），Vue 默认转义生效；</li>
+<li>5 个 HTML 入口无任何第三方 <code>&lt;script&gt;</code>（内联 script 只有 <code>type="module"</code> 本地入口），FontAwesome/字体均已本地化；</li>
+<li><code>checkAuth</code> 不信任 localStorage 的角色信息，只用服务端返回值判定与跳转（<code>auth.ts:134-151</code>）；</li>
+<li>登出与 401 都会清理（<code>auth.ts:113-114</code>、<code>api.ts:105-106</code>）。</li>
+</ul>
+<p><strong>建议改法</strong>：<code>csrf_token</code> 改用 <code>sessionStorage</code>（或干脆只依赖 HttpOnly cookie + <code>X-CSRF-Token</code> 由后端在 <code>/api/auth/me</code> 下发内存态），至少不要跨标签页长期驻留；<code>userInfo</code> 只保留“非敏感的显示用字段”，并统一加 <code>sessionStorage</code>。若 C++ 端能支持，最稳妥是双提交 + <code>SameSite=Strict</code>（属后端范围，见后端报告）。</p>
+<p><strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f15-0-测试-0-lint-2626-行核心页面无任何回归网-medium">F15 —— 0 测试 / 0 lint：2626 行核心页面无任何回归网【medium】</h3>
+<p><strong>位置</strong>：<code>package.json:6-12</code>、<code>.github/workflows/ci.yml:37-46</code></p>
+<p><strong>证据</strong></p>
+<pre class="code"><code>### scripts
+"dev": "vite", "build": "vue-tsc --noEmit &amp;&amp; vite build",
+"build:no-typecheck": "vite build", "typecheck": "vue-tsc --noEmit", "preview": "vite preview"
+### 仓库内不存在任何测试/lint 配置（全仓搜索，排除 node_modules/vcpkg）
+.eslintrc* / eslint.config.* / .prettierrc* / prettier.config.* / vitest.config.* / jest.config.*
+*.spec.ts / *.spec.js / *.test.ts / *.test.js   →  0 个命中</code></pre>
+<pre class="code" data-lang="yaml"><code># ci.yml:37-46：CI 的全部前端把关就是 typecheck + build
+      - name: Typecheck (vue-tsc)
+        run: npm run typecheck
+      - name: Build (Mock 模式，与 pages.yml 同参)
+        run: npm run build:no-typecheck</code></pre>
+<p><strong>问题</strong>：<code>dependencies</code> 里没有 vitest/eslint/prettier，也没有 <code>test</code>/<code>lint</code> 脚本；CI 无 lint、无单测。而 <code>AdminApp.vue</code> 2626 行里承载 26 个 API 调用与 12 个表单弹窗，<code>TeacherApp.vue</code> 1519 行里已存在“硬编码假数据被 UI 消费”这类只靠肉眼能发现的缺陷（F4）。同时 <code>ci.yml:46</code> 用 <code>build:no-typecheck</code> —— 由于第 37 行已单独跑过 typecheck，这条<strong>不构成漏洞</strong>，但意味着“只要有一步顺序被改动，构建就不再拦类型错误”。</p>
+<p><strong>建议改法</strong>（最小起步）：</p>
+<ol>
+<li>加 <code>vitest</code> + <code>@vue/test-utils</code>，先测 <strong>3 个纯逻辑单元</strong>：<code>lib/api.ts</code> 的 <code>apiRequest</code> 四分支（401/403/429/500，可用 <code>vi.stubGlobal('fetch')</code>）、<code>lib/auth.ts</code> 的 <code>checkAuth</code> 跳转矩阵、<code>composables/usePagination.ts</code>（F6）。约 150 行测试就能覆盖最易回归的路径。</li>
+<li>加 <code>eslint</code> + <code>@typescript-eslint</code> + <code>eslint-plugin-vue</code> 与 <code>prettier</code>，CI 增加 <code>npm run lint</code> 步骤；这条能立刻把 F7/F19 这类问题变成红灯。</li>
+<li><code>tsconfig.json:15-16</code> 打开（配合 F5），并在 CI 里保持 <code>npm run typecheck</code> 与 build 两步都在。</li>
+</ol>
+<p><strong>预期收益</strong>：把“只能人工点”的关键页面纳入可回归范围；lint 一步即可自动拦住本轮 24 条里约 1/3 的机械问题。<strong>成本 L（但可分批，第一批 S）。</strong></p>
+<hr>
+<h3 id="h-f16-正式发布用-npm-install-可改写-lockfile-与-ci-的-npm-ci-不一致-medium">F16 —— 正式发布用 <code>npm install</code>（可改写 lockfile），与 CI 的 <code>npm ci</code> 不一致【medium】</h3>
+<p><strong>位置</strong>：<code>.github/workflows/release.yml:49-55</code>（对照 <code>.github/workflows/ci.yml:33-35</code>）</p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="yaml"><code># release.yml:49-55
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install          # ← 会按 package.json 的 ^ 范围解析，必要时改写 package-lock.json
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build</code></pre>
+<pre class="code" data-lang="yaml"><code># ci.yml:33-35
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci</code></pre>
+<p><strong>问题</strong>：<code>package.json</code> 里全是 <code>^</code> 范围（<code>vue: ^3.4.27</code>、<code>vite: ^5.2.11</code>、<code>vite: ^5.2.11</code>…），本机 <code>npm ci</code> 实际装到 <code>vue 3.5.40 / vite 5.4.21 / typescript 5.9.3 / vue-tsc 2.2.12</code>。<code>npm install</code> 在 tag 构建时会重新解析范围，可能出现“CI 通过、Release 装到别的版本”的情况，且会把 <code>package-lock.json</code> 改动带入工作区。发布可复现性被破坏。</p>
+<p><strong>建议改法</strong>：<code>release.yml:51</code> 改为 <code>npm ci</code>（并在需要时显式 <code>npm ci --no-audit --no-fund</code>）。若要允许升级依赖，应通过单独的 Dependabot/手动 PR 修改 lockfile，而不是让发布流水线自己解析。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f17-xlsx-0-18-5-命中已知漏洞-且本环境无法跑-npm-audit-low">F17 —— <code>xlsx@0.18.5</code> 命中已知漏洞，且本环境无法跑 <code>npm audit</code>【low】</h3>
+<p><strong>位置</strong>：<code>package.json:18</code>；实测 <code>node -e "require('xlsx/package.json').version"</code> → <code>0.18.5</code></p>
+<p><strong>证据</strong></p>
+<pre class="code"><code>xlsx 0.18.5 | homepage: https://sheetjs.com/
+### npm audit（生产依赖）
+npm warn audit 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk
+npm error [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+### exit=1</code></pre>
+<p><strong>问题</strong>：<code>xlsx@0.18.5</code> 是 npm registry 上 SheetJS 的最后一版，<code>CVE-2023-30533</code>（原型污染）与 <code>CVE-2024-22363</code>（ReDoS）在其后版本才修复，而修复版只发布在 SheetJS 自有 CDN（社区有 0.18.5 的修复分支）。当前用法是解析<strong>管理员手动上传的 xlsx</strong>（<code>AdminApp.vue:638-667</code>），攻击面局限在管理员本人，但属于“已知不可修”的依赖债。同时因为 registry 指向 <code>registry.npmmirror.com</code>（未实现 advisories 接口），CI 里也无法用 <code>npm audit</code> 自动发现。</p>
+<p><strong>建议改法</strong>：</p>
+<ol>
+<li>优先换成 <code>exceljs</code>（活跃维护、npm 上可升级）或锁定到 SheetJS 官方 CDN 的修复版并记录校验和；</li>
+<li>若保留：在 <code>AdminApp.vue:647</code> 的 <code>XLSX.read</code> 前加文件大小/行数上限（现无任何上限），并在 README 里记录该风险；</li>
+<li>CI 增加依赖检查（<code>npm audit --registry=https://registry.npmjs.org</code> 或 <code>osv-scanner</code>/Dependabot），摆脱对镜像安全接口的依赖。</li>
+</ol>
+<p><strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f18-tsconfig-json-的-include-含-html-paths-别名零使用-low">F18 —— <code>tsconfig.json</code> 的 <code>include</code> 含 <code>*.html</code>、<code>paths</code> 别名零使用【low】</h3>
+<p><strong>位置</strong>：<code>tsconfig.json:20-25</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="json"><code>    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] }
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "*.html"],</code></pre>
+<p><strong>问题</strong>：<code>*.html</code> 对 <code>vue-tsc --noEmit</code> 没有实质作用（HTML 不是 TS 编译单元，只有被 <code>src/**/*.ts</code> 引用时才参与）；<code>@/*</code> 别名在 <code>vite.config.ts:19-27</code> 的 <code>rollupOptions.input</code> 之外<strong>没有任何一处使用</strong>——全项目 import 全是相对路径（如 <code>../../components/AppLayout.vue</code>，四个页面各 2-3 层 <code>../../</code>）。别名声明了却不用，会让新加入者以为存在统一路径规范。</p>
+<p><strong>建议改法</strong>：删掉 <code>include</code> 里的 <code>"*.html"</code>；要么在 <code>vite.config.ts</code> 补 <code>resolve.alias</code> 并统一迁移到 <code>@/components/...</code>（更耐重构，但改动面大），要么删掉 <code>paths</code> 只留相对路径。二选一，不要维持现状。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f19-login-vue-同一模块重复-import-low">F19 —— <code>Login.vue</code> 同一模块重复 import【low】</h3>
+<p><strong>位置</strong>：<code>src/pages/Login.vue:12-15</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>import { ref, onMounted } from 'vue'
+import { login } from '../lib/auth'
+import { apiRequest } from '../lib/api'
+import { getRoleHome } from '../lib/auth'      // ← 与第 13 行重复</code></pre>
+<p><strong>问题</strong>：两条 <code>from '../lib/auth'</code> 语句（<code>src</code> 内唯一的重复 import；全项目其余 import 均单行）。功能无影响，但属于 lint 可自动拦下的机械问题（配合 F15）。</p>
+<p><strong>建议改法</strong>：合并为 <code>import { login, getRoleHome } from '../lib/auth'</code>。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f20-mock-未匹配路由返回-http-200-code-404-并强制-200-500-ms-随机延迟-low">F20 —— Mock 未匹配路由返回 HTTP 200 + <code>code:404</code>，并强制 200-500 ms 随机延迟【low】</h3>
+<p><strong>位置</strong>：<code>src/mock/index.ts:661-687</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// index.ts:666-675
+  // 模拟网络延迟，让 Demo 更真实
+  await new Promise(resolve =&gt; setTimeout(resolve, 200 + Math.random() * 300))
+
+  const db = loadDB()
+  const matched = matchRoute(method.toUpperCase(), url.split('?')[0])
+  if (!matched) {
+    console.warn(`[Mock] 未匹配的 API: ${method} ${url}`)
+    return { code: 404, msg: `[Mock] 接口未实现: ${method} ${url}` }
+  }</code></pre>
+<p><strong>问题</strong>：真实后端对未知路径返回 HTTP 404（<code>routes_static.cpp:63</code>），mock 却返回 HTTP 200 + 业务码 404。于是同一个前端代码在两种模式下走<strong>不同</strong>分支：真实模式下 <code>api.ts:96</code> 的 <code>response.json()</code> 抛错 → toast；mock 模式下静默（F2 情形 3）。这会让 demo 掩盖掉真实的 404 处理缺陷。另外每次请求都强制 200-500 ms 延迟（对一个纯 localStorage 读取而言），demo 交互无谓变慢。</p>
+<p><strong>建议改法</strong>：<code>mockRequest</code> 返回体保留 <code>{code, msg}</code>，但让调用方按 <code>code</code> 判断就够了——更好的做法是让 mock 与真实后端<strong>语义一致</strong>（未匹配时抛错或返回一个统一的错误对象，由 <code>api.ts</code> 同一分支处理）；延迟降到 50-100 ms，或仅在 <code>import.meta.env.DEV</code> 下启用。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f21-下载-csv-模板未释放-objecturl-low">F21 —— 下载 CSV 模板未释放 ObjectURL【low】</h3>
+<p><strong>位置</strong>：<code>src/pages/teacher/TeacherApp.vue:578-587</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// TeacherApp.vue:578-587
+function downloadCsvTemplate() {
+  const csvContent = '学号,姓名,班级,初始密码\n2024001,测试学生,高二(1)班,123456\n'
+  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)        // ← 无 revokeObjectURL
+  link.download = '学生导入模板.csv'
+  document.body.appendChild(link); link.click(); document.body.removeChild(link)
+}</code></pre>
+<p>对照 <code>AdminApp.vue:1117-1131</code> 的正确写法（<code>URL.revokeObjectURL(url)</code> 在 1130 行）。</p>
+<p><strong>问题</strong>：每次点击泄漏一个 blob URL（页面生命周期内不释放）。量级很小，但这是同一项目里已有的正确模式没被复用。</p>
+<p><strong>建议改法</strong>：抽取 <code>lib/download.ts</code> 的 <code>downloadBlob(blob, filename)</code>（内部 <code>revokeObjectURL</code>），<code>TeacherApp.vue:578-587</code>、<code>AdminApp.vue:1122-1130</code> 与 <code>TeacherApp.vue:625-636</code>（xlsx <code>writeFile</code>）统一调用。<strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f22-四份重复的-tab-loader-映射-parentapp-用类型断言绕过联合类型-low">F22 —— 四份重复的 tab→loader 映射；<code>ParentApp</code> 用类型断言绕过联合类型【low】</h3>
+<p><strong>位置</strong>：<code>AdminApp.vue:1204-1222</code>、<code>TeacherApp.vue:690-719</code>、<code>StudentApp.vue:243-267</code>、<code>ParentApp.vue:220-241</code>、<code>ParentApp.vue:226</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// 四处的共同形状（AdminApp:1205-1221）
+function switchTab(tab: string) {
+  if (tab === '__logout__') { logout(); return }
+  currentTab.value = tab
+  if (tab === 'dashboard') { loadDashboard(); nextTick(() =&gt; dashboardChartRef.value?.resize()) }
+  else if (tab === 'users') { loadUsers() }
+  else if (tab === 'classes') { loadClasses() }
+  else if (tab === 'mall') { loadProducts(); loadExchangeRecords() }
+}</code></pre>
+<pre class="code" data-lang="ts"><code>// ParentApp.vue:221-241 —— 同一模式，但拆成两个函数 + 断言
+function switchTab(tab: string) {
+  if (tab === '__logout__') { logout(); return }
+  currentTab.value = tab as typeof currentTab.value     // ← 226：用断言绕过 'points'|'evaluation'|'redemptions'|'messages' 联合类型
+  loadActiveTabData()
+}
+function loadActiveTabData() { if (!currentChildId.value) return; if (currentTab.value === 'points') ... }</code></pre>
+<p><strong>问题</strong>：tab 名（<code>navConfig.ts</code> 里已有一份 <code>NavItem.key</code>）与加载函数的关系在四个页面各写一遍，共 4 份 <code>if/else</code> 链；新增一个 tab 要改 3 处（<code>navConfig</code>、<code>switchTab</code>链、模板 <code>v-show</code>）。<code>ParentApp.vue:226</code> 的断言让非法 tab 名（例如 <code>'admin'</code>）静默通过类型检查。</p>
+<p><strong>建议改法</strong>：统一用映射表 + 类型守卫：</p>
+<pre class="code" data-lang="ts"><code>const loaders: Record&lt;AdminTab, () =&gt; void&gt; = { dashboard: ..., users: ..., classes: ..., mall: ... }
+function switchTab(tab: string) {
+  if (tab === '__logout__') return void logout()
+  if (!(tab in loaders)) return
+  currentTab.value = tab as AdminTab
+  loaders[tab]()   // + 每个 loader 内部自己 nextTick(resize)
+}</code></pre>
+<p><code>ParentApp</code> 的联合类型可用 <code>const PARENT_TABS = ['points','evaluation','redemptions','messages'] as const</code> 导出复用。</p>
+<p><strong>成本 M。</strong></p>
+<hr>
+<h3 id="h-f23-弹窗的全局监听器与-body-overflow-竞态-usechart-的死分支-low">F23 —— 弹窗的全局监听器与 body overflow 竞态；<code>useChart</code> 的死分支【low】</h3>
+<p><strong>位置</strong>：<code>src/components/BaseModal.vue:42-66</code>；<code>src/composables/useChart.ts:46-62</code></p>
+<p><strong>证据</strong></p>
+<pre class="code" data-lang="ts"><code>// BaseModal.vue:55-66
+watch(() =&gt; props.show, (v) =&gt; { document.body.style.overflow = v ? 'hidden' : '' })
+onMounted(() =&gt; window.addEventListener('keydown', onKey))     // ← 每个实例一个常驻监听器
+onBeforeUnmount(() =&gt; { window.removeEventListener('keydown', onKey); document.body.style.overflow = '' })</code></pre>
+<pre class="code" data-lang="ts"><code>// useChart.ts:46-57
+onMounted(() =&gt; { window.addEventListener('resize', onWindowResize) })
+onActivated(() =&gt; { window.addEventListener('resize', onWindowResize); resize() })
+onDeactivated(() =&gt; { window.removeEventListener('resize', onWindowResize) })</code></pre>
+<p><strong>问题</strong>：</p>
+<ol>
+<li><code>AdminApp.vue</code> 挂 12 个 <code>BaseModal</code>、<code>TeacherApp.vue</code> 挂 5 个 → <strong>17 个常驻 <code>window</code> keydown 监听器</strong>，每次按键触发 17 次回调（回调里只读 <code>props.show</code>）。功能上无害，但属于可省的开销与内存持有。</li>
+<li><code>document.body.style.overflow</code> 用“直接赋值”而非计数：若有 2 个弹窗同时打开（例如批量导入结果 + 编辑弹窗，或后续新增），其中一个关闭时会把 <code>''</code> 写回，导致背景滚动在另一个弹窗仍打开时被解锁；<code>onBeforeUnmount</code>（65）也会无条件解锁。</li>
+<li><code>useChart.ts:50-57</code> 的 <code>onActivated/onDeactivated</code> 只在 <code>&lt;KeepAlive&gt;</code> 内才有意义，而全项目 0 处 <code>KeepAlive</code>（检索确认）→ 是永不执行的分支，同时 <code>onActivated</code> 里重复 <code>addEventListener</code> 的写法在 KeepAlive 场景下还会重复注册。</li>
+</ol>
+<p><strong>建议改法</strong>：把弹窗的 keydown/overflow 收敛到 <code>main.ts</code> 已挂载的全局 overlay 层（一个 <code>overlayCount</code> + 一个 <code>keydown</code>），<code>BaseModal.vue</code> 只上报开关；<code>useChart.ts</code> 删除 <code>onActivated/onDeactivated</code>（或保留但补上 KeepAlive 场景的对称性注释）。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h3 id="h-f24-content-length-0-是-fetch-禁止的请求头-浏览器静默丢弃-注释声称的兼容性从未生效-med">F24 —— <code>Content-Length: 0</code> 是 fetch 禁止的请求头：浏览器静默丢弃，注释声称的兼容性从未生效【medium】</h3>
+<p><strong>位置</strong>：<code>src/lib/api.ts:70-76</code></p>
+<p><strong>证据（源码）</strong></p>
+<pre class="code" data-lang="ts"><code>// api.ts:70-76
+  if (data !== undefined &amp;&amp; data !== null) {
+    headers['Content-Type'] = 'application/json'
+    options.body = JSON.stringify(data)
+  } else if (method === 'DELETE') {
+    // 无请求体的 DELETE 需 Content-Length:0，兼容部分反代
+    headers['Content-Length'] = '0'
+  }</code></pre>
+<p><strong>证据（规范/文档，双重确认）</strong></p>
+<ul>
+<li>MDN《Forbidden request header》：该类头“<strong>cannot be set or modified programmatically in a request</strong>”，并明确把 <code>Content-Length</code> 列在禁止清单中（"the user agent retains full control over them"，示例中 <code>fetch</code> 设置 <code>Date</code> 头<strong>不报错也不生效</strong>）。见 <a href="https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_request_header">MDN Forbidden request header</a>。</li>
+<li>MDN《Headers.set()》：“<strong>For security reasons, some headers can only be controlled by the user agent. These headers include the forbidden request headers</strong>” —— 即通过 <code>Headers</code>/<code>RequestInit</code> 设置该类头是被忽略的路径，而非抛 <code>TypeError</code> 的路径。见 <a href="https://developer.mozilla.org/en-US/docs/Web/API/Headers/set">MDN Headers.set()</a>。</li>
+<li>因此实际后果是<strong>静默忽略</strong>：不会抛 <code>TypeError</code>、不会有控制台警告（<code>Headers</code> 的 request guard 对 forbidden name 是直接 return）。也就是说这行代码<strong>在浏览器里永远不产生该请求头</strong>，注释里的“兼容部分反代”既无依据也无效果。</li>
+</ul>
+<p><strong>证据（本机实测，注意环境差异）</strong></p>
+<pre class="code"><code>### node fetch 侧（undici 24.16.0）行为
+node -e "const r=new Request('http://127.0.0.1:1/x',{method:'DELETE',headers:{'Content-Length':'0','X-CSRF-Token':'t'}});
+         console.log('content-length -&gt;', JSON.stringify(r.headers.get('content-length')));"
+content-length -&gt; "0"          # Node/undici 保留（与浏览器相反）
+x-csrf-token -&gt; "t"</code></pre>
+<p><strong>未能完成的部分（如实记录）</strong>：本机 Chrome 无法在沙箱内启动（<code>FATAL:mojo\public\cpp\platform\platform_channel.cc:108 Check failed: . : 拒绝访问。(0x5)</code>，见 1.3 ⑤），因此<strong>没有拿到“真实浏览器 + 服务端回显”的端到端证据</strong>；上述“静默忽略、无警告”的结论来自 MDN/规范，以及 Node/undici 与规范不一致这一旁证。建议在真实浏览器里用 DevTools Network 面板确认一次（操作步骤见第 6 节）。</p>
+<p><strong>受影响的调用点（4 处无体 DELETE，走这条分支）</strong>：<code>AdminApp.vue:812</code>（<code>/api/admin/roles?id=</code>）、<code>AdminApp.vue:897</code>、<code>AdminApp.vue:1003</code>、<code>AdminApp.vue:1083</code>。带体的 DELETE（<code>AdminApp.vue:540</code>、<code>TeacherApp.vue:531</code>）走 <code>data !== undefined</code> 分支，本来就不受影响。这 4 个请求的<strong>安全关键头是 <code>X-CSRF-Token</code>（api.ts:79-82）</strong>，它不在禁止清单里，实测在 Node 侧也正常保留。</p>
+<p><strong>建议改法</strong>：删掉 <code>api.ts:73-76</code> 整段（浏览器会自动按 body 计算 <code>Content-Length</code>，无体 DELETE 本来就不需要该头），并在注释里去掉无法复现的“兼容部分反代”说法；若确实遇到某个反代拒收无 <code>Content-Length</code> 的 DELETE，应记录具体的反代/版本/复现步骤，改用后端或反代侧配置解决，而不是在前端写一个无效头。</p>
+<p><strong>成本 S。</strong></p>
+<hr>
+<h2 id="h-4-做得好的地方-均有源码依据">4. 做得好的地方（均有源码依据）</h2>
+<ol>
+<li><strong>统一请求封装与 CSRF 注入</strong>：所有 34 个端点都经 <code>api.get/post/put/delete</code>（<code>api.ts:130-135</code>）→ <code>apiRequest</code>（<code>api.ts:52-127</code>），写方法统一注入 <code>X-CSRF-Token</code>（79-82）+ <code>credentials: 'include'</code>（64），没有一处裸 <code>fetch</code>（全项目检索 <code>api.</code> 之外无 <code>fetch(</code> 调用）。</li>
+<li><strong>多入口配置干净</strong>：<code>vite.config.ts:19-27</code> 显式声明 5 个 HTML 入口，<code>base</code> 走 <code>VITE_BASE</code>（11 行）兼容 GitHub Pages 子路径；<code>index.html</code>/<code>admin.html</code>/… 每个都是 13 行的最小壳，只引一个 entry（<code>src/entries/*.ts</code> 各 4 行 + <code>main.ts:20-39</code> 的 <code>mountApp</code> 工厂），新增入口的成本很低。</li>
+<li><strong>UI 组件抽取到位</strong>：<code>AppLayout</code>/<code>Sidebar</code>/<code>BaseModal</code>/<code>Pagination</code>/<code>StatCard</code>/<code>EmptyState</code>/<code>RoleBadge</code>/<code>BaseChart</code>/<code>ToastContainer</code>/<code>ConfirmDialog</code> 十个组件<strong>全部被真实引用</strong>（<code>AppLayout→Sidebar</code> 组合见 <code>AppLayout.vue:14,54-68</code>；<code>EmptyState</code> 被四个页面共用 14 次；<code>BaseModal</code> 复用 17 次），并且 <code>Sidebar</code> 用 <code>NavItem[]</code> + <code>#extra-section</code> 插槽（<code>Sidebar.vue:27-40,77</code>）覆盖了 4 个角色的差异，没有为每个角色复制侧边栏。</li>
+<li><strong>配置驱动的导航与主题</strong>：<code>lib/navConfig.ts:25-62</code> 集中定义 4 套 <code>NavItem</code>，<code>lib/theme.ts:32-83</code> 集中 5 套主题 class（<code>THEMES.rose/teal/emerald/indigo/amber</code>），页面里没有散落的色值硬编码（虽然 <code>ROLE_THEME</code> 未使用，见 F7）。</li>
+<li><strong><code>alert</code>/<code>confirm</code> 已彻底替换</strong>：<code>toast</code>（<code>useToast.ts:41-47</code>）与 <code>confirmDialog</code>（<code>useConfirm.ts:40-50</code>）是模块级 Promise 化设计，<code>main.ts:31-36</code> 用一个独立 app 挂到 <code>body</code>，跨页面共享；全项目检索 <strong>0 处 <code>window.alert(</code> / <code>window.confirm(</code></strong>。</li>
+<li><strong>认证流程比多数项目严谨</strong>：<code>auth.ts:125-154</code> 的 <code>checkAuth</code> 不信任 localStorage，先用 <code>/api/auth/me</code> 验证会话、再用服务端数据覆盖本地（143）、做角色校验并按角色跳转；<code>loadFromStorage</code> 有 <code>try/catch</code>（52-56）容忍脏数据。</li>
+<li><strong>Mock 与真实后端同构</strong>：<code>mock/index.ts:213-231</code> 用 <code>{method, pattern, paramNames, handler}</code> 路由表 + 正则参数（与后端 34 个端点一一对应），返回同一个 <code>ApiResponse</code> 形状，<code>api.ts:58-60</code> 单点开关；并且<strong>默认不启用</strong>（<code>vite.config.ts:14</code> 缺省 <code>'false'</code>），生产真实构建里整模块被 tree-shaking 剔除（见 5.5 实测）。</li>
+<li><strong>XSS 面极小</strong>：全项目 <code>v-html</code>/<code>innerHTML</code> = 0；<code>style.css:85</code> 的内联 SVG 噪点纹理用 data-URI 且无用户输入；用户内容全部走 <code>{{ }}</code> 插值。</li>
+<li><strong>表格/空态/加载态的处理一致</strong>：<code>EmptyState</code> 的三种 variant（<code>EmptyState.vue:6-16</code>）在 14 处使用，<code>colspan</code> 可按表格列数传入（31 行），比内联 <code>v-if="list.length===0"</code> 更统一。</li>
+<li><strong>toast 可访问性</strong>：<code>ToastContainer.vue:27,34</code> 带 <code>aria-live="polite"</code> 与 <code>role="alert"</code>（对比弹窗缺失 dialog 语义，见 F12）。</li>
+</ol>
+<hr>
+<h2 id="h-5-量化指标附表">5. 量化指标附表</h2>
+<h3 id="h-5-1-每个文件的规模与结构-get-content-行数-read-工具-of-n-双向核对">5.1 每个文件的规模与结构（<code>Get-Content</code> 行数 / <code>read</code> 工具 <code>of N</code> 双向核对）</h3>
+<div class="tw"><table>
+<thead><tr><th>文件</th><th>总行数</th><th>script 段</th><th>template 段</th><th>style 段</th></tr></thead>
+<tbody>
+<tr><td><code>pages/admin/AdminApp.vue</code></td><td><strong>2626</strong></td><td>1237</td><td>1263</td><td>124</td></tr>
+<tr><td><code>pages/teacher/TeacherApp.vue</code></td><td><strong>1519</strong></td><td>734</td><td>691</td><td>92</td></tr>
+<tr><td><code>pages/parent/ParentApp.vue</code></td><td>842</td><td>257</td><td>409</td><td>174</td></tr>
+<tr><td><code>pages/student/StudentApp.vue</code></td><td>788</td><td>283</td><td>313</td><td>190</td></tr>
+<tr><td><code>mock/index.ts</code></td><td>693</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>pages/Login.vue</code></td><td>291</td><td>59</td><td>158</td><td>72</td></tr>
+<tr><td><code>lib/auth.ts</code></td><td>159</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>components/Sidebar.vue</code></td><td>145</td><td>53</td><td>75</td><td>15</td></tr>
+<tr><td><code>components/BaseModal.vue</code></td><td>139</td><td>71</td><td>40</td><td>26</td></tr>
+<tr><td><code>lib/api.ts</code></td><td>135</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>components/AppLayout.vue</code></td><td>123</td><td>43</td><td>79</td><td>0</td></tr>
+<tr><td><code>style.css</code></td><td>120</td><td>—</td><td>—</td><td>120</td></tr>
+<tr><td><code>components/ConfirmDialog.vue</code></td><td>119</td><td>27</td><td>23</td><td>67</td></tr>
+<tr><td><code>components/Pagination.vue</code></td><td>117</td><td>47</td><td>37</td><td>31</td></tr>
+<tr><td><code>components/ToastContainer.vue</code></td><td>96</td><td>23</td><td>20</td><td>51</td></tr>
+<tr><td><code>lib/theme.ts</code></td><td>95</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>composables/usePagination.ts</code></td><td>67</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>components/StatCard.vue</code></td><td>66</td><td>33</td><td>20</td><td>11</td></tr>
+<tr><td><code>composables/useChart.ts</code></td><td>65</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>lib/navConfig.ts</code> / <code>composables/useConfirm.ts</code></td><td>62 / 62</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>composables/useToast.ts</code></td><td>60</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>lib/format.ts</code></td><td>54</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>components/BaseChart.vue</code></td><td>50</td><td>46</td><td>3</td><td>0</td></tr>
+<tr><td><code>components/RoleBadge.vue</code></td><td>42</td><td>26</td><td>3</td><td>11</td></tr>
+<tr><td><code>main.ts</code> / <code>components/EmptyState.vue</code></td><td>39 / 36</td><td>— / 17</td><td>— / 18</td><td>— / 0</td></tr>
+<tr><td><code>env.d.ts</code></td><td>17</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><code>entries/{admin,login,parent,student,teacher}.ts</code></td><td>各 4</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td><strong>合计（32 个 TS/Vue 文件，不含 fonts）</strong></td><td><strong>8527 行 / 350,150 B</strong></td><td></td><td></td><td></td></tr>
+<tr><td><code>assets/fonts.css</code>（生成物，不计入逐行审计）</td><td>113,012 B</td><td></td><td></td><td></td></tr>
+</tbody></table></div>
+<h3 id="h-5-2-api-调用点与端点">5.2 API 调用点与端点</h3>
+<div class="tw"><table>
+<thead><tr><th>文件</th><th><code>api.get/post/put/delete</code> 调用点</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>pages/admin/AdminApp.vue</code></td><td><strong>26</strong></td><td>7 个 GET 加载 + 19 个写操作</td></tr>
+<tr><td><code>pages/teacher/TeacherApp.vue</code></td><td><strong>18</strong></td><td>含 <code>TeacherApp.vue:317</code> 的空转 GET（F4）</td></tr>
+<tr><td><code>pages/student/StudentApp.vue</code></td><td>8</td><td>6 个首屏并发 + 兑换 + 复用</td></tr>
+<tr><td><code>pages/parent/ParentApp.vue</code></td><td>7</td><td>子女/信息/积分/评价/兑换/留言</td></tr>
+<tr><td><code>lib/auth.ts</code></td><td>3+1</td><td>login/parent-login/logout + <code>checkAuth</code></td></tr>
+<tr><td><code>lib/api.ts</code></td><td>5</td><td>便捷方法自身实现（F5）</td></tr>
+<tr><td><code>pages/Login.vue</code></td><td>1</td><td><code>/api/auth/me</code> 自动跳转</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>69</strong></td><td>覆盖 <strong>34 个去重端点</strong></td></tr>
+<tr><td><code>res.code === 200 / !== 200</code> 判据</td><td><strong>62 处</strong></td><td>分布：admin 26 / teacher 17 / student 8 / parent 7 / auth 3 / login 1</td></tr>
+<tr><td><code>try {</code> 块</td><td><strong>68 处</strong></td><td>admin 27 / teacher 18 / student 8 / parent 7 / api 2 / auth 2 / mock 2 / login 2</td></tr>
+<tr><td><code>console.error(</code></td><td><strong>51 处</strong></td><td>admin 25 / teacher 18 / parent 7 / mock 1</td></tr>
+</tbody></table></div>
+<h3 id="h-5-3-依赖与静态资源体积-源码口径-dist-因沙箱无法产出-故非构建实测">5.3 依赖与静态资源体积（源码口径；<code>dist</code> 因沙箱无法产出，故非构建实测）</h3>
+<div class="tw"><table>
+<thead><tr><th>资源</th><th>体积</th><th>使用面</th></tr></thead>
+<tbody>
+<tr><td><code>echarts</code>（全量，<code>useChart.ts:10</code> 命名空间导入）</td><td>源 <code>echarts.min.js</code> <strong>1009.9 KB</strong></td><td>三个角色页的图表</td></tr>
+<tr><td><code>xlsx</code>（<code>AdminApp.vue:15</code> 静态引入）</td><td><code>xlsx.js</code> <strong>815.8 KB</strong></td><td>仅管理员批量导入/模板下载</td></tr>
+<tr><td><code>pinyin-pro</code>（<code>AdminApp.vue:16</code>）</td><td><code>index.js</code> <strong>315.9 KB</strong></td><td>仅管理员生成学生账号</td></tr>
+<tr><td><code>src/assets/fonts/*.woff2</code>（107 个子集）</td><td><strong>4724.4 KB</strong>（Noto Sans SC 101 个 = 4410.5 KB；Fraunces 6 个 = 314.0 KB）</td><td>全局（<code>main.ts:4</code>）</td></tr>
+<tr><td><code>src/assets/fonts.css</code></td><td><strong>113.0 KB</strong>（107 条 <code>@font-face</code>，全部带 <code>unicode-range</code> 与 <code>font-display: swap</code>）</td><td>全局（5 个入口都引 <code>main.ts</code>）</td></tr>
+<tr><td><code>@fortawesome/fontawesome-free/css/all.min.css</code></td><td><strong>72.2 KB</strong></td><td>全局（<code>main.ts:6</code>）</td></tr>
+<tr><td>FontAwesome <code>webfonts/</code>（4×woff2 + 4×ttf，CSS 同时引用两种格式）</td><td><strong>999.0 KB</strong></td><td>全局（实际用到 81 个图标类名，均存在于 FA6 免费版）</td></tr>
+<tr><td>产物静态资源小计（字体+FA）</td><td><strong>≈ 5.9 MB</strong></td><td>不含 JS/CSS</td></tr>
+</tbody></table></div>
+<h3 id="h-5-4-类型检查结果">5.4 类型检查结果</h3>
+<div class="tw"><table>
+<thead><tr><th>命令（均在 <code>frontend/</code> 下执行）</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td><code>npm run typecheck</code>（= <code>vue-tsc --noEmit</code>，CI 门禁同款）</td><td><strong>exit 0，0 错误</strong></td></tr>
+<tr><td><code>npx vue-tsc --noEmit --noUnusedLocals --noUnusedParameters</code></td><td>exit 2，<strong>7 错误</strong>（mock 6 + <code>TeacherApp.vue:664</code>）</td></tr>
+<tr><td><code>npx vue-tsc --noEmit --noUncheckedIndexedAccess</code></td><td><strong>19 错误</strong>（<code>AdminApp</code> 5 / <code>StudentApp</code> 6 / <code>mock</code> 6 / <code>parent</code> 1 / <code>teacher</code> 1）</td></tr>
+<tr><td>三项全开</td><td><strong>26 错误</strong>（mock 12 / student 6 / admin 5 / teacher 2 / parent 1）</td></tr>
+<tr><td><code>npm run build:no-typecheck</code></td><td><strong>失败</strong>：<code>Error: spawn EPERM</code>（沙箱阻断 esbuild 子进程，非代码问题）</td></tr>
+<tr><td><code>npm audit --omit=dev</code></td><td><strong>失败</strong>：registry <code>npmmirror.com</code> 未实现 advisories 接口（404 NOT_IMPLEMENTED）</td></tr>
+<tr><td>工具版本（<code>npm ci</code> 实际安装）</td><td>vue 3.5.40 / vite 5.4.21 / typescript 5.9.3 / vue-tsc 2.2.12 / rollup 4.62.3 / node 24.16.0 / npm 11.13.0</td></tr>
+</tbody></table></div>
+<h3 id="h-5-5-mock-模块-tree-shaking-实测矩阵-rollup-4-62-3-进程内对照实验">5.5 mock 模块 tree-shaking 实测矩阵（Rollup 4.62.3 进程内对照实验）</h3>
+<div class="tw"><table>
+<thead><tr><th>实验条件</th><th>产物字节</th><th>模块数</th><th><code>mock-csrf-token</code>/种子数据/<code>newpass123</code></th></tr></thead>
+<tbody>
+<tr><td><code>VITE_USE_MOCK</code> 未定义替换（模拟无 <code>define</code>）</td><td>37,556</td><td>4</td><td><strong>HIT</strong>（全部进入）</td></tr>
+<tr><td><code>VITE_USE_MOCK='false'</code>（define 生效）</td><td><strong>4,405</strong></td><td><strong>3</strong></td><td><strong>MISS（整模块剔除）</strong></td></tr>
+<tr><td><code>VITE_USE_MOCK='false'</code> + 空壳对照</td><td>4,405</td><td>3</td><td>MISS（与上者字节数完全相同 → 剔除是完备的）</td></tr>
+<tr><td><code>VITE_USE_MOCK='true'</code></td><td>34,273</td><td>4</td><td><strong>HIT（全部进入）</strong></td></tr>
+</tbody></table></div>
+<p><strong>判读</strong>：</p>
+<ul>
+<li>结论（推翻“假密码/假 token 一定进生产包”的假设）：<strong><code>release.yml</code> 的正式发布构建（未设 <code>VITE_USE_MOCK</code>）不含 mock 模块</strong>；<code>mock-csrf-token</code>、<code>newpass123</code>、种子学生/班级数据均不会出现在该产物中。</li>
+<li>但 <strong><code>ci.yml:44</code> 与 <code>pages.yml:45</code> 显式设 <code>VITE_USE_MOCK='true'</code></strong>，这两份产物（GitHub Pages 站点、以及被 package job 塞进 <code>server.exe</code> 的 <code>frontend-dist</code>）会完整包含 mock 层，体积代价约 <strong>+29.9 KB（未压缩，仅 api 子图口径）</strong> → 见 F1。</li>
+<li>该实验的边界：以 <code>api.ts → mock/index.ts</code> 子图为准复现 Rollup 的 tree-shaking 决策，<strong>不是 <code>vite build</code> 的完整产物</strong>；若需要 100% 结论，必须在能 spawn 子进程的环境重跑 <code>npm run build</code>（见第 6 节）。</li>
+</ul>
+<hr>
+<h2 id="h-6-未验证-存疑事项-如实标注">6. 未验证 / 存疑事项（如实标注）</h2>
+<ol>
+<li><strong><code>dist</code> 产物未能生成</strong>：<code>vite build</code> 与真实浏览器实测都被沙箱阻断（<code>spawn EPERM</code>；Chrome <code>mojo platform_channel 拒绝访问</code>）。因此 5.3 的体积是“依赖/资源源码口径”而非构建产物实测，mock 剔除结论来自由同版本 Rollup 复现的对照实验（5.5）。<strong>需要在无沙箱环境复跑</strong>：<code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build:no-typecheck</code>，然后</li>
+</ol>
+<p><code>Select-String -Path dist/assets/*.js -Pattern 'mock-csrf-token|三年级一班|newpass123'</code>（预期 0 命中）与 <code>VITE_USE_MOCK=true npm run build:no-typecheck</code>（预期命中），并记录 <code>dist/</code> 总体积。</p>
+<ol>
+<li><strong><code>Content-Length</code> 的浏览器端行为缺少端到端实测</strong>：MDN/规范支持“静默忽略、无 TypeError、无警告”，Node/undici 24.16.0 实测反而不丢弃该头。建议在真实浏览器里确认一次：DevTools → Network → 触发一次“删除班级”（<code>AdminApp.vue:1003</code>）→ 查看该 DELETE 请求的 Request Headers 是否包含 <code>content-length</code>（预期不包含），同时观察 Console 是否出现任何提示（预期无）。</li>
+<li><strong>后端是否真的依赖该头</strong>：本次只读了 <code>routes_admin.cpp:130-147</code> 与 <code>routes_static.cpp:58-69</code>，没有全面核对 httplib 对无 <code>Content-Length</code> 的 DELETE 的处理。F24 的建议（删除该行）需与后端审计结论交叉确认；但即便保留，浏览器里也依然不生效。</li>
+<li><strong>默认口令是否与后端种子一致</strong>：F13 依据 <code>release.yml:164-167</code> 的 Release Notes（明示 <code>admin/admin123</code> 等）与 <code>models.cpp:16</code> 的“默认用户数据”注释判定，<strong>未复算哈希</strong>。后端审计报告（<code>BACKEND_FINDINGS.md</code> B2/B5 段）已独立得到同类结论，F13 以后端结论为准更稳妥。</li>
+<li><strong><code>/api/teacher/evaluation/dimensions</code> 是否还有其他消费者</strong>：F4 只证明前端丢弃返回值，未核对后端是否有其他调用方（不影响前端删除该调用的建议）。</li>
+<li><strong><code>npm audit</code> 的环境限制</strong>：registry 指向 <code>registry.npmmirror.com</code>，advisories 接口 404，因此本轮<strong>没有</strong>运行时依赖漏洞扫描结果，F17 来自公开漏洞库而非本机扫描。</li>
+<li><strong><code>node_modules</code> 是由 <code>--ignore-scripts</code> 安装的</strong>：138 个包齐全、<code>vue-tsc</code> 与 <code>npm run typecheck</code> 正常，唯一潜在差异是跳过了各包的 postinstall（esbuild 的平台二进制已由 <code>@esbuild/win32-x64</code> 提供，<code>probe3</code> 确认 <code>esbuild.exe</code> 存在）。这可能与 <code>vite build</code> 失败有关，但 <code>probe4</code> 证明失败点是 <code>spawn</code>（沙箱）而非缺文件。</li>
+</ol>
+<hr>
+<h2 id="h-7-建议的改进优先级与批次划分">7. 建议的改进优先级与批次划分</h2>
+<h3 id="h-批次-0-立即-合计约-1-人日-能消掉-1-blocker-3-high-medium">批次 0（立即，合计约 1 人日，能消掉 1 blocker + 3 high/medium）</h3>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>动作</th><th>对应发现</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>ci.yml</code> 的 package job 改用非 mock 构建（或重新 build）；mock 构建只给 Pages</td><td>F1</td><td>S</td></tr>
+<tr><td>2</td><td><code>api.ts</code> 增加 5xx 兜底分支 + 统一 <code>code !== 200</code> 提示，修正 <code>StudentApp</code> 的误导注释</td><td>F2</td><td>S</td></tr>
+<tr><td>3</td><td>删除 <code>api.ts:73-76</code> 的 <code>Content-Length</code> 无效代码</td><td>F24</td><td>S</td></tr>
+<tr><td>4</td><td>删除 <code>TeacherApp.vue:168-171</code> 硬编码假评价数据、<code>editEvaluation/deleteEvaluation</code> 改为禁用态、删掉空转的 <code>loadEvaluations()</code> 请求</td><td>F4</td><td>S</td></tr>
+<tr><td>5</td><td><code>release.yml:51</code> 改 <code>npm ci</code></td><td>F16</td><td>S</td></tr>
+<tr><td>6</td><td>清理 8 处零引用导出（F7）+ <code>Login.vue:13,15</code> 重复 import（F19）</td><td>F7/F19</td><td>S</td></tr>
+</tbody></table></div>
+<h3 id="h-批次-1-本迭代-约-3-5-人日-聚焦-看得见的正确性">批次 1（本迭代，约 3-5 人日，聚焦“看得见的正确性”）</h3>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>动作</th><th>对应</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>7</td><td><code>AdminApp.vue:1101-1115</code> 系统配置 4 个按钮改为禁用态或接线</td><td>F10</td><td>S</td></tr>
+<tr><td>8</td><td><code>AdminApp/TeacherApp/ParentApp</code> 的 <code>onMounted</code> 改 <code>Promise.all</code></td><td>F9</td><td>S</td></tr>
+<tr><td>9</td><td>抽 <code>callApi()</code> 包装，收敛 24 处错误样板（与 #2 合并做）</td><td>F8</td><td>M</td></tr>
+<tr><td>10</td><td><code>ConfirmDialog</code> 键盘/焦点/dialog 语义（+ 顺带修 F23 的 overflow 竞态与监听器）</td><td>F12/F23</td><td>S</td></tr>
+<tr><td>11</td><td>登录页演示账号块加 <code>import.meta.env</code> 开关</td><td>F13</td><td>S</td></tr>
+<tr><td>12</td><td><code>usePagination</code> 接回 3 个页面（并补首个单测）</td><td>F6</td><td>S</td></tr>
+<tr><td>13</td><td><code>tsconfig.json</code> 打开 <code>noUnusedLocals</code>（修 7 处）</td><td>F5</td><td>S</td></tr>
+<tr><td>14</td><td><code>TeacherApp.vue:578-587</code> 抽 <code>lib/download.ts</code> 并 revoke</td><td>F21</td><td>S</td></tr>
+<tr><td>15</td><td><code>tsconfig.json</code> 清理 <code>include</code>/<code>paths</code></td><td>F18</td><td>S</td></tr>
+</tbody></table></div>
+<h3 id="h-批次-2-下迭代-结构性改造-约-8-12-人日">批次 2（下迭代，结构性改造，约 8-12 人日）</h3>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>动作</th><th>对应</th><th>成本</th></tr></thead>
+<tbody>
+<tr><td>16</td><td><strong>AdminApp 拆分</strong>：拆 7 个 tab 组件 + 2 个表单弹窗组件 + 3 个 composable，主文件降到 ≤ 350 行（按 F3 的 9 步分 4-6 个 PR）</td><td>F3</td><td>L</td></tr>
+<tr><td>17</td><td><strong>TeacherApp 拆分</strong>：按同样方式拆 7 个 tab，主文件 ≤ 400 行</td><td>F4</td><td>L</td></tr>
+<tr><td>18</td><td>类型加固：<code>ApiResponse&lt;T = unknown&gt;</code>、去索引签名、补 34 个端点 DTO、<code>noUncheckedIndexedAccess</code>（19 处）</td><td>F5</td><td>M</td></tr>
+<tr><td>19</td><td>引入 vitest + @vue/test-utils，先覆盖 <code>api</code>/<code>auth</code>/<code>usePagination</code> 三个纯逻辑模块（约 150 行测试）</td><td>F15</td><td>M</td></tr>
+<tr><td>20</td><td>引入 eslint + prettier 并接进 CI</td><td>F15</td><td>M</td></tr>
+<tr><td>21</td><td>包体优化：echarts 按需注册、xlsx/pinyin 动态 import、字体与 FA 精简</td><td>F11</td><td>M</td></tr>
+<tr><td>22</td><td>tab→loader 映射表统一（4 个页面）</td><td>F22</td><td>M</td></tr>
+<tr><td>23</td><td>依赖治理：xlsx 迁移或风险记录 + CI 依赖扫描</td><td>F17</td><td>M</td></tr>
+</tbody></table></div>
+<h3 id="h-批次-3-可选-随部署环境决定">批次 3（可选，随部署环境决定）</h3>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>动作</th><th>对应</th></tr></thead>
+<tbody>
+<tr><td>24</td><td><code>csrf_token</code> 改 sessionStorage / 后端支持 <code>SameSite=Strict</code> 后只依赖 cookie</td><td>F14</td></tr>
+<tr><td>25</td><td>mock 与真实后端语义对齐（未匹配路由的错误传播方式）+ 移除无谓延迟</td><td>F20</td></tr>
+<tr><td>26</td><td>弹窗/侧边栏的 a11y 补全（<code>role="dialog"</code>、焦点陷阱、<code>aria-*</code>）</td><td>F12</td></tr>
+</tbody></table></div>
+<hr>
+<h2 id="h-附-本报告未改动任何源码的证明">附：本报告未改动任何源码的证明</h2>
+<pre class="code"><code>$ cd D:\邵敬文\comptation &amp;&amp; git status --porcelain
+?? .agent-teams/
+?? docs/audit/</code></pre>
+<p>（<code>frontend/node_modules/</code> 与 <code>frontend/dist/</code> 均在 <code>.gitignore</code> 中；<code>package-lock.json</code> 无变更；<code>frontend/dist</code> 因构建失败未生成。）</p>
+  </main>
+</div>
+</body>
+</html>

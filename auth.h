@@ -318,9 +318,33 @@ namespace Auth {
 
 // ====== 认证中间件 ======
 
+// 安全修复 V18（B2）：强制首登改密门禁。
+// must_change_password=true 的会话只允许「改密 / 登出 / 查看自身信息」，
+// 其余业务接口一律 403 + 可读 msg（fail-closed：无会话或会话无效时不在此拦截，
+// 交由原有 401 逻辑处理，避免把「未登录」误报成「需改密」）。
+// 白名单端点（/api/auth/change-password、/api/auth/logout、/api/auth/me）位于
+// routes_public.cpp，不经过本函数，因此无需在中间件里做例外判断。
+inline bool enforce_password_change(const httplib::Request& req, httplib::Response& res) {
+    std::string session_id = get_cookie_value(req, "sid");
+    if (session_id.empty()) return true;
+    std::string user_id = verify_session(session_id);
+    if (user_id.empty()) return true;
+    if (!user_must_change_password(user_id)) return true;
+
+    set_cors_headers(req, res);
+    res.status = 403;
+    res.set_content(
+        R"({"code":403,"must_change_password":true,"msg":"首次登录必须修改初始口令后才能使用其他功能"})",
+        "application/json");
+    return false;
+}
+
 // 权限检查中间件（普通用户）
 // 从 Cookie 中提取 session_id，验证会话，检查权限
 inline bool check_permission_middleware(const httplib::Request& req, httplib::Response& res, const string& permission_code) {
+    // 安全修复 V18（B2）：未改初始口令的会话不得访问任何业务接口
+    if (!enforce_password_change(req, res)) return false;
+
     std::string session_id = get_cookie_value(req, "sid");
 
     if (session_id.empty()) {
@@ -367,6 +391,9 @@ inline bool check_permission_middleware(const httplib::Request& req, httplib::Re
 // 从 Cookie 中提取 session_id，验证家长会话，返回家长 user_id（字符串）
 // 验证失败时返回空串并设置响应
 inline std::string check_parent_auth_middleware(const httplib::Request& req, httplib::Response& res) {
+    // 安全修复 V18（B2）：未改初始口令的会话不得访问家长端业务接口
+    if (!enforce_password_change(req, res)) return "";
+
     std::string session_id = get_cookie_value(req, "sid");
 
     if (session_id.empty()) {

@@ -70,7 +70,7 @@
 |------|------|
 | `config.h` | `ServerConfig` 结构体定义 + `load_config()` 配置加载函数（从 `config.json` 读取） |
 | `logger.h` / `logger.cpp` | `Logger` 类，支持日志级别（info/warning/error）+ 日志轮转（按大小/数量） |
-| `sha256.h` | SHA256 哈希算法实现 + 密码哈希工具（`hash_password()`/`verify_password()`：PBKDF2-SHA256 十万次迭代 + 随机盐，自动识别兼容旧版 SHA-256 哈希） |
+| `sha256.h` | SHA256 哈希算法实现 + 密码哈希工具（`hash_password()`/`verify_password()`：PBKDF2-SHA256 十万次迭代 + 随机盐；旧版裸 SHA-256 记录仅保留**只读**校验兼容，不再被改写） |
 | `models.h` / `models.cpp` | `User`/`Role`/`Permission`/`RolePermission`/`PointsRecord` 结构体 + 全局数据容器 + 索引优化（`find_user_by_id`/`find_user_by_username`/`check_permission_optimized`） |
 | `auth.h` | CORS 头设置 + 请求/响应日志 + Cookie 会话管理（HttpOnly/SameSite/Secure）+ CSRF 双提交校验 + `check_permission_middleware` 权限中间件 |
 | `routes.h` | 6 个路由注册函数声明 |
@@ -461,7 +461,7 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 |--------|------|------|
 | `id` | INTEGER PK AUTO | 主键，自增 |
 | `username` | TEXT UNIQUE NOT NULL | 用户名，唯一 |
-| `password_hash` | TEXT NOT NULL | 密码哈希（新版 `pbkdf2$迭代次数$盐$摘要` 格式；初始种子账号为旧版 SHA-256，登录校验时自动识别） |
+| `password_hash` | TEXT NOT NULL | 密码哈希（`pbkdf2$迭代次数$盐$摘要` 格式；旧版裸 SHA-256 记录仅被**只读**校验兼容，不再被自动改写，属失效凭据待运维重置） |
 | `role_id` | INTEGER NOT NULL | 角色 ID（1=管理员/2=教师/3=学生/4=家长） |
 | `name` | TEXT NOT NULL | 用户姓名 |
 | `className` | TEXT | 班级名称 |
@@ -612,18 +612,28 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 ---
 
-## 9. 默认账号
+## 9. 默认账号与初始口令
 
-系统初始化时通过 `INSERT OR IGNORE` 写入 4 个默认账号：
+系统**首次启动且 `users` 表为空**时，才会写入下列 4 个内置账号（`admin` / `teacher` / `student` / `parent`）：
 
-| 角色 | 用户名 | 密码 | 姓名 | 班级 | 初始积分 |
-|------|--------|------|------|------|----------|
-| 管理员 | `admin` | `admin123` | 管理员 | 系统管理 | 0 |
-| 教师 | `teacher` | `teacher123` | 王老师 | 高二(1)班 | 0 |
-| 学生 | `student` | `student123` | 张同学 | 高二(1)班 | 150 |
-| 家长 | `parent` | `parent123` | 张同学家长 | — | 0 |
+| 角色 | 用户名 | 初始口令 | 姓名 | 班级 | 初始积分 |
+|------|--------|----------|------|------|----------|
+| 管理员 | `admin` | 首启随机生成，见控制台 | 管理员 | 系统管理 | 0 |
+| 教师 | `teacher` | 首启随机生成，见控制台 | 王老师 | 高二(1)班 | 0 |
+| 学生 | `student` | 首启随机生成，见控制台 | 张同学 | 高二(1)班 | 150 |
+| 家长 | `parent` | 首启随机生成，见控制台 | 张同学家长 | — | 0 |
 
-> **安全提示**：生产环境部署后请立即修改默认密码。种子账号的密码以旧版 SHA-256 哈希存储（如 `admin123` → `240be518...`）；通过接口新设置/修改的密码自动使用 PBKDF2-SHA256（10 万次迭代 + 随机盐），登录校验时两种格式均自动识别，旧账号修改一次密码即完成升级。
+- 初始口令由 **CSPRNG（`generate_random_password()`）为每个账号独立生成随机强口令**，四个口令两两不同 —— 项目**不再提供任何固定/可预测的默认口令**（历史版本中的可预测口令已彻底移除）。
+- 初始口令**仅在首次启动时向控制台（标准输出）打印一次**，不写入任何文件（因此不会出现在 `server.log` 中）；请立即妥善保存。
+- 这些账号的 `must_change_password` 被置为 1：**首次登录后必须先修改口令**，改密成功前无法调用其它业务接口（白名单仅有改密 / 登出 / 查看自身信息）。
+- 若初始口令丢失：删除数据目录下的 `campus_system.db`（见 `config.json` 的 `database.path`）后重启，系统会重新生成随机初始口令，**但会清空全部数据**；生产环境请改用下述运维重置流程。
+
+> **安全提示**：密钥材料与口令**不以明文形式随代码/交付包分发**，部署后也无需"改默认密码"这一步 —— 系统从一开始就不存在可预测口令。运维如需重置口令，请走 `/api/auth/change-password`（需有效会话）或删除库重新初始化。
+>
+> **存量数据库（历史版本升级上来的库）**：旧版 4 个内置账号的无盐 SHA-256 记录，以及**修复前遗留的 `pbkdf2$` 记录**，一律视为**失效凭据**，必须由运维**强制重置** —— 原因见 `docs/audit/BATCH0_DESIGN_DECISIONS.md` 决策①（存量 `pbkdf2$` 记录"好坏同构"，无法在信息论上区分）。注意：
+> - 登录时**不再有任何自动升级链路**（旧版"登录成功即把裸 SHA-256 就地改写为 PBKDF2"的行为已删除），因此旧记录永远不会被"用一次就自动修好"；
+> - 启动时会统计并告警仍在使用旧版无盐 SHA-256 的账号，请据此实施重置；
+> - **重置清单必须同时覆盖两类记录**：裸 SHA-256 记录 **与** 存量 `pbkdf2$` 记录（只看前者会漏掉后者）。
 
 ---
 

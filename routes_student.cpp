@@ -58,7 +58,14 @@ void register_student_routes(httplib::Server& svr) {
     svr.Get("/api/student/points/records", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
 
-        // 学生查看自己的积分记录，仅需登录验证，无需特殊权限
+        // 检查权限
+        // 安全修复 V18/B2 补漏（T29）：原实现只做 verify_session、**未接门禁**，
+        // 导致 must_change_password=true 的会话可在此端点绕过「首登强制改密」。
+        // 现与同文件其余四个端点的既有写法完全对齐（本文件 5 个 handler 现已 5/5 接入门禁）。
+        if (!check_permission_middleware(req, res, "mall:manage")) {
+            return;
+        }
+
         std::string session_id = get_cookie_value(req, "sid");
         string user_id = verify_session(session_id);
         if (user_id.empty()) {

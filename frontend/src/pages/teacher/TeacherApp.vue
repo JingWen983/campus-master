@@ -56,12 +56,24 @@ interface EvalDimension {
   scoreMax: number
 }
 
+/**
+ * 教师端评价（GET /api/teacher/evaluations）的真实响应结构。
+ * 后端字段名以 routes_teacher.cpp:758-771 为准：student_id / dimension_id 为下划线命名；
+ * users.id 是 TEXT 主键（main.cpp:80），故 student_id 为字符串。
+ * 修复前此处写成 studentId: number，与后端字段名和类型都不一致，
+ * 导致 getStudentEvaluation() 的 e.studentId === studentId 恒为 false（恒显示「未评价」）。
+ */
 interface Evaluation {
   id: number
-  studentId: number
-  dimensionId: number
+  student_id: string
+  student_name: string
+  className: string
+  dimension_id: number
+  dimension_name: string
   score: number
   comment: string
+  evaluator_name: string
+  time: string
 }
 
 interface EvaluationForm {
@@ -165,10 +177,8 @@ const evaluationDimensions: EvalDimension[] = [
   { id: 4, name: '美育', description: '艺术素养和审美能力', scoreMax: 100 },
   { id: 5, name: '劳育', description: '劳动技能和实践能力', scoreMax: 100 },
 ]
-const evaluations = ref<Evaluation[]>([
-  { id: 1, studentId: 1, dimensionId: 1, score: 85, comment: '表现良好' },
-  { id: 2, studentId: 1, dimensionId: 2, score: 90, comment: '学习认真' },
-])
+// 评价数据一律来自 GET /api/teacher/evaluations（loadEvaluations），初始为空数组。
+const evaluations = ref<Evaluation[]>([])
 const evaluation = ref<EvaluationForm>({ studentId: '', scores: {}, comment: '' })
 
 // Dashboard
@@ -311,10 +321,18 @@ async function loadPointsRecords() {
 }
 
 async function loadEvaluations() {
-  // 原始代码调用 /api/teacher/evaluation/dimensions 但赋值到不存在的 this.dimensions，
-  // 实际未使用返回值。此处保留 API 调用以维持网络行为。
+  // 修复 F4：原先只调用 /api/teacher/evaluation/dimensions（单数端点）且丢弃返回值，
+  // evaluations 恒为空 → 所有学生恒显示「未评价」。
+  // 现在请求复数端点 GET /api/teacher/evaluations（routes_teacher.cpp:728）并真正回填。
   try {
-    await api.get('/api/teacher/evaluation/dimensions')
+    const res = await api.get<Evaluation[]>('/api/teacher/evaluations')
+    if (res.code === 200) {
+      // 运行时以字符串比对，避免后端 id 形态变化时静默失配
+      evaluations.value = (res.data || []).map(item => ({
+        ...item,
+        student_id: String(item.student_id),
+      }))
+    }
   } catch (e) {
     console.error('Load evaluations error:', e)
   }
@@ -632,7 +650,9 @@ function evaluateStudent(student: Student) {
 }
 
 function getStudentEvaluation(studentId: number | string, dimensionId: number): number | null {
-  const ev = evaluations.value.find(e => e.studentId === studentId && e.dimensionId === dimensionId)
+  // 双侧都归一化成 string 比较：students[].id 与 evaluations[].student_id 同源于 users.id（main.cpp:80 TEXT）
+  const sid = String(studentId)
+  const ev = evaluations.value.find(e => String(e.student_id) === sid && Number(e.dimension_id) === Number(dimensionId))
   return ev ? ev.score : null
 }
 
@@ -661,26 +681,9 @@ async function submitEvaluation() {
   }
 }
 
-function editEvaluation(student: Student) {
-  toast.info('编辑评价功能开发中...')
-}
-
-async function deleteEvaluation(student: Student) {
-  const ok = await confirmDialog({
-    message: `确定要删除学生 ${student.name} 的评价吗？`,
-    variant: 'danger',
-    confirmText: '确认删除',
-  })
-  if (!ok) return
-  try {
-    // 这里需要根据实际的评价ID来调用删除API
-    // 暂时使用模拟数据
-    toast.info('删除评价功能开发中...')
-  } catch (e) {
-    console.error('Delete evaluation error:', e)
-    toast.error('网络错误，请稍后重试')
-  }
-}
+// 修复 F4：原先 editEvaluation / deleteEvaluation 只弹「功能开发中...」toast（死按钮）。
+// 改为纯禁用态：后端仅有 PUT /api/teacher/evaluation/(\d+)（单分数更新），无删除端点，
+// 本批次不动后端，故按钮 disabled，不再保留任何假交互。
 
 // ===== Pagination =====
 function changePage(page: number) {
@@ -1084,10 +1087,10 @@ onMounted(async () => {
                     <button @click="evaluateStudent(student)" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:text-teal-600 hover:bg-teal-50 smooth-trans" title="评价">
                       <i class="fa-solid fa-star text-xs"></i>
                     </button>
-                    <button @click="editEvaluation(student)" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:text-amber-600 hover:bg-amber-50 smooth-trans" title="编辑">
+                    <button type="button" disabled title="编辑评价（后端暂无对应接口，本批次禁用）" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-300 cursor-not-allowed" aria-disabled="true">
                       <i class="fa-solid fa-pen-to-square text-xs"></i>
                     </button>
-                    <button @click="deleteEvaluation(student)" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:text-rose-500 hover:bg-rose-50 smooth-trans" title="删除">
+                    <button type="button" disabled title="删除评价（后端无删除接口，本批次禁用）" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-300 cursor-not-allowed" aria-disabled="true">
                       <i class="fa-solid fa-trash text-xs"></i>
                     </button>
                   </div>

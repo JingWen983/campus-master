@@ -28,7 +28,19 @@ check_*.py
 *_test.py
 *_test.ts
 conftest.py
-tests/
+
+# tests/ 默认整体排除（编译产物、临时数据、截图一律不入库），但按文件放行
+# 单元测试的**源码**与驱动脚本：
+#   * 放行的只有 tests/*.cpp 与 tests/run_tests.ps1，两者都是源代码 ——
+#     不违反「仓库仅保留源代码」的既有意图；编译产物（tests/pbkdf2_test.exe）
+#     仍同时被上面的 *.exe 与本条 tests/* 命中，不会被跟踪；
+#   * 必须写成 `tests/*` + 逐条 `!` 否定，不能写成裸 `tests/`：git 规则规定
+#     「父目录被排除时无法再放行其内部文件」，裸 `tests/` 会让下面的 ! 失效；
+#   * 若将来新增其他类型的测试源码，需在此追加对应的 `!tests/*.<ext>`。
+tests/*
+!tests/*.cpp
+!tests/run_tests.ps1
+
 test/
 test_*.csv
 test_*.png

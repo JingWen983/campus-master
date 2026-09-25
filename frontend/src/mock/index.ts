@@ -21,6 +21,31 @@ interface User {
   points?: number
   password_hash?: string
   parent_password?: string
+  /**
+   * 安全修复 V18（B2）：与真后端 users.must_change_password 同名字段
+   * （真后端：main.cpp:221 建列、models.cpp:60/73-75 回载、routes_public.cpp:85/88/224 下发）。
+   * 演示站取值见 SEED_USERS 处注释：**有意为 false**。
+   */
+  must_change_password?: boolean
+}
+
+/** 安全修复 V18（B2）：与真后端 routes_public.cpp:496-507 同源的弱口令黑名单 */
+const WEAK_DEFAULT_PASSWORDS = [
+  'admin123', 'teacher123', 'student123', 'parent123',
+  '12345678', '123456789', 'password', 'password1', 'admin@123',
+]
+
+/** 强度判据（与真后端 routes_public.cpp:484-494 一致）：≥8 位且同时含字母与数字 */
+function isTooShortOrWeakFormat(pwd: string): boolean {
+  if (pwd.length < 8) return true
+  if (!/[A-Za-z]/.test(pwd)) return true
+  if (!/[0-9]/.test(pwd)) return true
+  return false
+}
+
+/** 弱口令黑名单判据（与真后端 routes_public.cpp:496-507 一致） */
+function isPredictableDefault(pwd: string): boolean {
+  return WEAK_DEFAULT_PASSWORDS.includes(pwd)
 }
 
 interface PointsRecord {
@@ -94,6 +119,21 @@ interface ParentMessage {
 }
 
 // ===================== 种子数据 =====================
+/**
+ * 演示站账号（本地种子）。
+ *
+ * 安全修复 V18（B2）—— `must_change_password` 取值说明（t18 决策，必须写清理由）：
+ * 真后端在「首启 users 表为空」时会生成**随机初始口令**并要求首登改密
+ * （main.cpp:83-154 种子 + auth.h:327 enforce_password_change 全局门禁）。
+ * 演示站**没有这个流程**：账号是本地种子、登录用任意口令（见 /api/auth/login 的注释），
+ * 点四个角色就应当直接进去逛。因此这里**有意不置位**（缺省即 false，登录响应会显式返回
+ * `must_change_password: false`）—— 既满足「演示站不得出现要求改密却无法改密的死局」，
+ * 也不改变演示站的既有体验。
+ *
+ * 但**改密端点仍真实可用**（见 POST /api/auth/change-password）：把某个演示账号的
+ * must_change_password 置为 true 再登录，即可完整走通「被门禁 → 改密 → 放行」路径
+ * （t18 的验证脚本就是这么做的），所以 T7 的前端分支是可测的，不是死代码。
+ */
 const SEED_USERS: User[] = [
   { id: '1', username: 'admin', name: '系统管理员', role_id: 1, points: 0 },
   { id: '2', username: 'teacher', name: '张老师', role_id: 2, className: '三年级一班' },
@@ -243,7 +283,13 @@ const routes: Route[] = [
     if (!db.currentSession) return { code: 401, msg: '未登录' }
     const user = db.users.find(u => u.id === db.currentSession!.user_id)
     if (!user) return { code: 401, msg: '用户不存在' }
-    return { code: 200, data: { id: user.id, username: user.username, name: user.name, role_id: user.role_id, className: user.className, points: user.points } }
+    // 安全修复 V18（B2）：与真后端 routes_public.cpp:224 一致地下发 must_change_password，
+    // 前端刷新页面后仍能识别「必须先改密」
+    return { code: 200, data: {
+      id: user.id, username: user.username, name: user.name, role_id: user.role_id,
+      className: user.className, points: user.points,
+      must_change_password: user.must_change_password === true,
+    } }
   }},
   { method: 'POST', pattern: /^\/api\/auth\/login$/, paramNames: [], handler: (db, body) => {
     const user = db.users.find(u => u.username === body.username)
@@ -251,7 +297,13 @@ const routes: Route[] = [
     // Mock 模式：任意密码都能登录（演示用）
     db.currentSession = { user_id: user.id, role_id: user.role_id }
     saveDB(db)
-    return { code: 200, msg: '登录成功', data: { user: { id: user.id, username: user.username, name: user.name, role_id: user.role_id, className: user.className, points: user.points }, csrf_token: 'mock-csrf-token' } }
+    // 安全修复 V18（B2）：与真后端 routes_public.cpp:85/:88 一致，user 内与 data 内都下发该标记
+    const mustChange = user.must_change_password === true
+    return { code: 200, msg: '登录成功', data: {
+      user: { id: user.id, username: user.username, name: user.name, role_id: user.role_id, className: user.className, points: user.points, must_change_password: mustChange },
+      csrf_token: 'mock-csrf-token',
+      must_change_password: mustChange,
+    } }
   }},
   { method: 'POST', pattern: /^\/api\/parent\/login$/, paramNames: [], handler: (db, body) => {
     const user = db.users.find(u => u.username === body.username && u.role_id === 4)
@@ -259,7 +311,43 @@ const routes: Route[] = [
     db.currentSession = { user_id: user.id, role_id: 4 }
     saveDB(db)
     const children = db.users.filter(u => u.role_id === 3 && u.className === user.className)
-    return { code: 200, msg: '登录成功', data: { user: { id: user.id, username: user.username, name: user.name, role_id: 4, className: user.className }, children, csrf_token: 'mock-csrf-token' } }
+    const mustChange = user.must_change_password === true
+    return { code: 200, msg: '登录成功', data: {
+      user: { id: user.id, username: user.username, name: user.name, role_id: 4, className: user.className, must_change_password: mustChange },
+      children, csrf_token: 'mock-csrf-token', must_change_password: mustChange,
+    } }
+  }},
+  /**
+   * 安全修复 V18（B2 / t18）：mock 版改密端点，对齐真后端 routes_public.cpp:438-536。
+   * 行为：缺 CSRF → 403；未登录 → 401；原口令空/新口令空 → 400；
+   *      原口令错 → 400；新旧相同 → 400；强度不足 → 400；命中弱口令黑名单 → 400；
+   *      与用户名相同 → 400；合法 → 200 且 data.must_change_password = false 并落库清标记。
+   *
+   * 演示站的「原口令」判定说明：真后端校的是 password_hash；演示站种子账号没有
+   * password_hash（且登录本身允许任意口令），故这里只在**演示站仍保留可校验依据**时
+   * 才比对 password_hash，否则以「与新口令不同」为准 —— 保证演示站不会出现
+   * 「要求改密却因原口令无法校验而改不了」的死局。
+   */
+  { method: 'POST', pattern: /^\/api\/auth\/change-password$/, paramNames: [], handler: (db, body) => {
+    if (!db.currentSession) return { code: 401, msg: '会话无效或已过期' }
+    const user = db.users.find(u => u.id === db.currentSession!.user_id)
+    if (!user) return { code: 404, msg: '用户不存在' }
+    const oldPassword = String(body?.old_password ?? '')
+    const newPassword = String(body?.new_password ?? '')
+    if (!oldPassword || !newPassword) return { code: 400, msg: '原密码与新密码不能为空' }
+    if (user.password_hash && oldPassword !== user.password_hash) {
+      return { code: 400, msg: '原密码错误' }
+    }
+    if (oldPassword === newPassword) return { code: 400, msg: '新密码不能与原密码相同' }
+    if (isTooShortOrWeakFormat(newPassword)) {
+      return { code: 400, msg: '新密码至少 8 位，且必须同时包含字母和数字' }
+    }
+    if (isPredictableDefault(newPassword)) return { code: 400, msg: '新密码过于常见/可预测，请更换' }
+    if (newPassword === user.username) return { code: 400, msg: '新密码不能与用户名相同' }
+    user.password_hash = newPassword
+    user.must_change_password = false
+    saveDB(db)
+    return { code: 200, msg: '密码修改成功', data: { must_change_password: false } }
   }},
   { method: 'POST', pattern: /^\/api\/auth\/logout$/, paramNames: [], handler: (db) => {
     db.currentSession = null
@@ -477,20 +565,60 @@ const routes: Route[] = [
       { id: 5, name: '劳育' },
     ]}
   }},
+  // 与后端 routes_teacher.cpp:750-756 的维度名映射保持一致
+  { method: 'GET', pattern: /^\/api\/teacher\/evaluations$/, paramNames: [], handler: (db) => {
+    if (!db.currentSession) return { code: 401, msg: '未登录' }
+    // 与后端一致：只返回该教师所带班级学生的评价
+    // （后端 SQL 见 routes_teacher.cpp:740-748）
+    const studentIds = studentsForTeacher(db, db.currentSession.user_id).map(s => s.id)
+    const dimensionNames: Record<number, string> = { 1: '德育', 2: '智育', 3: '体育', 4: '美育', 5: '劳育' }
+    const data = db.evaluations
+      .filter(e => studentIds.includes(e.student_id))
+      .map(e => {
+        const s = db.users.find(u => u.id === e.student_id)
+        return {
+          id: Number(e.id),
+          student_id: String(e.student_id),
+          student_name: s?.name || '',
+          className: s?.className || '',
+          dimension_id: Number(e.dimension_id),
+          dimension_name: dimensionNames[Number(e.dimension_id)] || '',
+          score: Number(e.score),
+          comment: e.comment || '',
+          evaluator_name: e.evaluator_name || '',
+          time: e.created_at || '',
+        }
+      })
+      .sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0)) // 与后端 ORDER BY created_at DESC 对齐
+    return { code: 200, data }
+  }},
   { method: 'POST', pattern: /^\/api\/teacher\/evaluation$/, paramNames: [], handler: (db, body) => {
-    const evalRecord: Evaluation = {
-      id: nextId(db.evaluations),
-      student_id: body.student_id,
-      dimension_id: body.dimension_id,
-      score: body.score,
-      comment: body.comment,
-      evaluator_id: db.currentSession?.user_id || '',
-      evaluator_name: db.users.find(u => u.id === db.currentSession?.user_id)?.name || '',
-      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    // 真实契约（前端 TeacherApp.vue submitEvaluation → 后端 routes_teacher.cpp:475-478）：
+    //   { studentId: string, scores: { [dimensionId]: number }, comment: string }
+    // 后端按维度 1..5 逐条 INSERT（routes_teacher.cpp:501-519），此处同样逐条入 db.evaluations。
+    const studentId = String(body?.studentId ?? '')
+    const scores = body?.scores || {}
+    if (!studentId || !Object.keys(scores).length) {
+      return { code: 400, msg: '请填写完整信息' }
     }
-    db.evaluations.push(evalRecord)
+    const created: Evaluation[] = []
+    for (const dim of [1, 2, 3, 4, 5]) {
+      const evalRecord: Evaluation = {
+        id: nextId(db.evaluations),
+        student_id: studentId,
+        dimension_id: dim,
+        score: Number(scores[String(dim)] ?? 0),
+        comment: body?.comment || '',
+        evaluator_id: db.currentSession?.user_id || '',
+        evaluator_name: db.users.find(u => u.id === db.currentSession?.user_id)?.name || '',
+        created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      }
+      db.evaluations.push(evalRecord)
+      created.push(evalRecord)
+    }
     saveDB(db)
-    return { code: 200, msg: '评价已提交', data: evalRecord }
+    // 保持既有返回形状（单条 Evaluation），供 StudentApp/ParentApp 等既有消费方；记录在 :481 的 GET 可见
+    return { code: 200, msg: '评价已提交', data: created[0] }
   }},
   { method: 'GET', pattern: /^\/api\/teacher\/dashboard$/, paramNames: [], handler: (db) => {
     if (!db.currentSession) return { code: 401, msg: '未登录' }
@@ -655,7 +783,13 @@ const routes: Route[] = [
 
 // ===================== 导出 Mock 请求函数 =====================
 export function isMockEnabled(): boolean {
-  return import.meta.env.VITE_USE_MOCK === 'true'
+  // 构建期由 vite.config.ts:12-15 的 define 把这个完整表达式替换为字符串字面量
+  // （未设 VITE_USE_MOCK → 'false'）。该判断必须保持「严格等于 'true'」的显式布尔断言，
+  // 不得改成 truthy 判断，否则任何非空值（如 'false'/'0'）都会意外开启 mock。
+  if (import.meta.env?.VITE_USE_MOCK === 'true') return true
+  // 非 Vite 运行时（如 node 直接跑验证脚本）没有 import.meta.env，允许显式全局覆盖；
+  // 浏览器/构建产物路径不受影响（该分支恒为 false）。
+  return (globalThis as { __VITE_USE_MOCK__?: string }).__VITE_USE_MOCK__ === 'true'
 }
 
 export async function mockRequest<T = any>(
@@ -676,7 +810,8 @@ export async function mockRequest<T = any>(
 
   try {
     const result = matched.route.handler(db, data, matched.params)
-    if (import.meta.env.DEV) {
+    // 非 Vite 运行时（如 node 直接跑验证脚本）下 import.meta.env 可能不存在，避免整条请求被 catch 吞成 500
+    if (import.meta.env?.DEV) {
       console.log(`[Mock] ${method} ${url}`, { data, response: result })
     }
     return result as ApiResponse<T>
