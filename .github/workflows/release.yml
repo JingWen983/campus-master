@@ -125,21 +125,12 @@ jobs:
           cp -r frontend/dist release/frontend/dist
           # 运行时配置
           cp config.json release/
-          # 文档：README 与 docs/ 下用户文档随官方包分发，但**排除 docs/audit/**（T31）
-          # 原因同 ci.yml：审计报告含已失效口令明文原像与未修复缺陷细节，且与本包内
-          # 「不存在固定/可预测默认口令」的口径自相矛盾；审计证据仅留在仓库。
+          # README（用户文档入口）
           cp README.md release/
-          if [ -d docs ]; then
-            mkdir -p release/docs
-            cp -r docs/. release/docs/
-            rm -rf release/docs/audit
-          fi
-          # 反向守卫：正式包内不得出现 docs/audit，任何回归立即失败
-          if [ -d release/docs/audit ]; then
-            echo "ERROR: 正式包内出现 docs/audit —— 打包排除回归"; exit 1
-          fi
-          echo "Docs packed (docs/audit excluded):"
-          ls -R release/docs | head -20
+          # 文档：**不再随包分发 docs/**。
+          # 维护者要求 docs/ 与 tests/ 不进版本控制（见 .gitignore），checkout 里已无 docs/，
+          # 原先的 `cp -r docs/.` 与「排除 docs/audit + 反向守卫」成为空操作，故一并删除。
+          echo "Docs are NOT packaged (docs/ is not tracked; see .gitignore)"
           # 版本信息
           echo "${{ steps.ver.outputs.tag }}" > release/VERSION.txt
           echo "Build: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
@@ -184,15 +175,14 @@ jobs:
           ## 本版要点
           - **安全修复（批次 0，已提交）**：修复 PBKDF2 认证绕过（任意口令可登录）；移除可预测的默认凭据，改为首启由 CSPRNG 生成随机初始口令并强制首登改密；CI 交付包不再打入 Mock 前端（此前包内前端与 `server.exe` 永久失联）。
           - **并发与数据正确性（批次 1）**：数据库连接改为**每线程一条**（此前 8 个 worker 线程共享同一 `sqlite3*`）；全局共享容器与索引加一把互斥锁；用户/积分查找不再返回可悬垂的裸指针，改为值拷贝或受锁回调；兑换改为单事务原子提交并校验受影响行数（此前可双花/无故扣库存）；登录失败锁定改为不可伪造的客户端标识（此前伪造 `X-Forwarded-For` 即可绕过）并覆盖家长端；所有 4xx/5xx 返回结构化 JSON（此前未处理异常为 500 + 空响应体，前端完全静默）。
-          - **已知未闭合项**（详见仓库 `docs/audit/`）：批次 2 的若干数据正确性与一致性条目仍未修复。
-          - 更详细的审计与验证证据见仓库内 `docs/audit/`（**不随本包分发**）。
+          - **已知未闭合项**：批次 2 的若干数据正确性与一致性条目仍未修复（审计报告与证据保留在开发侧，不随包分发）。
+          - 用户文档不再随本包分发（`docs/` 已不纳入版本控制），部署与使用说明见 `README.md`。
           
           ## 包含内容
           - `server.exe` — C++ 后端可执行文件（SQLite 静态链接，无需额外 dll）
           - `frontend/dist/` — Vite + Vue 3 SFC 构建产物
           - `config.json` — 运行时配置
-          - `README.md` — 项目文档
-          - `docs/` — 用户手册与安装说明（**不含** `docs/audit/`：审计报告与证据不随包分发）
+          - `README.md` — 项目文档（含部署与使用说明）
           - `VERSION.txt` — 版本号 / 构建时间 / 提交号
 
           ## 快速开始

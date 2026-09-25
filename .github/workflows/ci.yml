@@ -163,21 +163,11 @@ jobs:
           chmod +x release/server.exe
           cp -r frontend/dist release/frontend/dist
           cp config.json README.md release/
-          # 文档：随包分发用户手册等，但**排除 docs/audit/**（T31）
-          # 原因：docs/audit 是审计报告与证据，含已失效口令的明文原像与未修复缺陷的复现细节；
-          # 与 README.md 里「不存在任何固定/可预测默认口令」的正确口径在同一个 zip 内**自相矛盾**，
-          # 且属对终端用户的过度暴露。审计证据本身必须留在仓库中（不删），只是不进交付包。
-          if [ -d docs ]; then
-            mkdir -p release/docs
-            cp -r docs/. release/docs/
-            rm -rf release/docs/audit
-          fi
-          # 反向守卫：交付包内不得出现 docs/audit（含证据文件），任何回归立即失败
-          if [ -d release/docs/audit ]; then
-            echo "ERROR: 交付包内出现 docs/audit —— 打包排除回归"; exit 1
-          fi
-          echo "Docs packed (docs/audit excluded):"
-          ls -R release/docs | head -20
+          # 文档：**不再随包分发 docs/**。
+          # 维护者要求 docs/ 与 tests/ 不进版本控制（见 .gitignore），因此 CI 的 checkout 里
+          # 已不存在 docs/ —— 原先的 `cp -r docs/.` 与「排除 docs/audit + 反向守卫」三步
+          # 已成为空操作，留着反而会让人误以为交付包仍带用户文档，故一并删除。
+          echo "Docs are NOT packaged (docs/ is not tracked; see .gitignore)"
           echo "commit: ${{ github.sha }}" > release/VERSION.txt
           echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> release/VERSION.txt
           ls -R release | head -30

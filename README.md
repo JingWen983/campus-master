@@ -196,15 +196,12 @@ comptation/
 │       ├── components/      # AppLayout / Sidebar / BaseModal / StatCard 等 10 个
 │       ├── assets/          # 本地化字体（Fraunces / Noto Sans SC）
 │       └── pages/           # Login.vue + admin/ + teacher/ + student/ + parent/
-└── docs/                    # 项目文档
-    ├── design_document.md   # 系统设计文档
-    ├── database_design.md   # 数据库设计说明
-    ├── user_manual.md       # 用户使用手册
-    ├── maintenance_manual.md# 维护手册
-    ├── sqlite_setup.md      # SQLite 构建说明
-    ├── arch_diagram.jpg / flow_diagram.jpg  # 架构/流程图
-    └── shots/               # 功能截图
+└── (仓库只保留源码与 README)
 ```
+
+> **说明**：`docs/`（设计文档 / 手册 / 截图）与 `tests/`（单元测试源码与驱动脚本）
+> 按维护者要求**不纳入版本控制**（见 `.gitignore`），仅保留在开发机上。
+> 因此本仓库不再包含用户手册与测试脚本，本文档即为完整的部署与使用说明。
 
 > 运行时在本地生成的 `campus_system.db`（数据库）、`server.log`（日志）、`cookies*.txt`（调试会话）等文件已被 `.gitignore` 排除，不入库。
 
@@ -630,7 +627,7 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 > **安全提示**：密钥材料与口令**不以明文形式随代码/交付包分发**，部署后也无需"改默认密码"这一步 —— 系统从一开始就不存在可预测口令。运维如需重置口令，请走 `/api/auth/change-password`（需有效会话）或删除库重新初始化。
 >
-> **存量数据库（历史版本升级上来的库）**：旧版 4 个内置账号的无盐 SHA-256 记录，以及**修复前遗留的 `pbkdf2$` 记录**，一律视为**失效凭据**，必须由运维**强制重置** —— 原因见 `docs/audit/BATCH0_DESIGN_DECISIONS.md` 决策①（存量 `pbkdf2$` 记录"好坏同构"，无法在信息论上区分）。注意：
+> **存量数据库（历史版本升级上来的库）**：旧版 4 个内置账号的无盐 SHA-256 记录，以及**修复前遗留的 `pbkdf2$` 记录**，一律视为**失效凭据**，必须由运维**强制重置** —— 原因是批量生成的 `pbkdf2$` 记录「好坏同构」（同一格式既可能对应正确口令、也可能对应攻击者预先写入的值），无法在信息论上区分，故只能整体作废。注意：
 > - 登录时**不再有任何自动升级链路**（旧版"登录成功即把裸 SHA-256 就地改写为 PBKDF2"的行为已删除），因此旧记录永远不会被"用一次就自动修好"；
 > - 启动时会统计并告警仍在使用旧版无盐 SHA-256 的账号，请据此实施重置；
 > - **重置清单必须同时覆盖两类记录**：裸 SHA-256 记录 **与** 存量 `pbkdf2$` 记录（只看前者会漏掉后者）。
@@ -740,11 +737,9 @@ git show aa5ca6a:test_production.py
 
 ### 相关文档
 
-- `docs/design_document.md` — 系统设计文档
-- `docs/database_design.md` — 数据库设计说明
-- `docs/user_manual.md` — 用户使用手册
-- `docs/maintenance_manual.md` — 维护手册
-- `docs/sqlite_setup.md` — SQLite 构建说明
+`docs/` 与 `tests/` 已不纳入版本控制，仓库内不再附带设计文档、用户手册与测试脚本；
+部署、配置、API 与安全说明均见本 README。
+
 - 在线 Demo（纯前端 Mock）：https://jingwen983.github.io/campus-master/
 
 ### 关键依赖版本

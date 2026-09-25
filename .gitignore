@@ -29,17 +29,18 @@ check_*.py
 *_test.ts
 conftest.py
 
-# tests/ 默认整体排除（编译产物、临时数据、截图一律不入库），但按文件放行
-# 单元测试的**源码**与驱动脚本：
-#   * 放行的只有 tests/*.cpp 与 tests/run_tests.ps1，两者都是源代码 ——
-#     不违反「仓库仅保留源代码」的既有意图；编译产物（tests/pbkdf2_test.exe）
-#     仍同时被上面的 *.exe 与本条 tests/* 命中，不会被跟踪；
-#   * 必须写成 `tests/*` + 逐条 `!` 否定，不能写成裸 `tests/`：git 规则规定
-#     「父目录被排除时无法再放行其内部文件」，裸 `tests/` 会让下面的 ! 失效；
-#   * 若将来新增其他类型的测试源码，需在此追加对应的 `!tests/*.<ext>`。
-tests/*
-!tests/*.cpp
-!tests/run_tests.ps1
+# tests/ 与 docs/ 整体不入库（按维护者要求：仓库不保留这两个目录）。
+# 变更说明（此前 tests/*.cpp 与 tests/run_tests.ps1 是被刻意放行的）：
+#   * 这两个目录现在**完全**被忽略，与「仓库不保留 tests/ 与 docs/」的口径一致；
+#   * 磁盘上的文件**保留**（本地仍可跑 tests/run_tests.ps1、仍可本地看文档），
+#     只是不再进入版本控制；
+#   * 由此产生的连带影响（已在同批提交里同步修正）：
+#       - CI / release 的打包步骤不再 `cp -r docs/.`（checkout 里已无 docs/），
+#         交付包因此**不再附带 docs/ 用户文档**；docs/audit 的「排除+反向守卫」
+#         也随之失去意义，一并移除；
+#       - README 中指向 docs/ 与 tests/ 的链接会失效，已在该文件中同步移除。
+tests/
+docs/
 
 test/
 test_*.csv
