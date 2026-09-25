@@ -13,9 +13,15 @@ import { ref, onMounted } from 'vue'
 import { login } from '../lib/auth'
 import { apiRequest } from '../lib/api'
 import { getRoleHome } from '../lib/auth'
-// 安全修复 V18（F13）：演示账号一键填充只在 mock/演示模式（VITE_USE_MOCK=true）下渲染，
-// 正式发布包（未设 VITE_USE_MOCK，构建时该表达式被替换为 'false'）不暴露可预测默认口令。
-import { isMockEnabled } from '../mock'
+// 安全修复 V18（F13）：演示账号一键填充只在 mock/演示模式（VITE_USE_MOCK=true）下渲染。
+//
+// 为什么这里**不再** `import { isMockEnabled } from '../mock'`：
+//   静态导入会把整个 mock 模块拉进产物，其中的可预测口令字面量
+//   （admin123 / teacher123 / student123 / parent123）随之进入**正式发布包**，
+//   与「项目不提供任何固定/可预测默认口令」的口径自相矛盾（且这些口令在真后端并不存在）。
+//   vite.config.ts 的 define 会把下面的表达式替换为字面量 'false' 并折叠为 false，
+//   于是 Vue 模板编译器可把整个 v-if 块当静态死代码消除 —— 前提是它出现在**本文件内**。
+const MOCK_ENABLED = import.meta.env.VITE_USE_MOCK === 'true'
 
 const username = ref('')
 const password = ref('')
@@ -177,8 +183,9 @@ function fillTestAccount(u: string, p: string) {
               </button>
             </form>
 
-            <!-- 演示账号（安全修复 V18 / F13：仅 mock/演示构建可见） -->
-            <div v-if="isMockEnabled()" class="mt-8 pt-6 border-t border-stone-200/60">
+            <!-- 演示账号（安全修复 V18 / F13：仅 mock/演示构建可见；
+                 非 mock 构建下 MOCK_ENABLED 被折叠为 false，整块为静态死代码，不会进入产物） -->
+            <div v-if="MOCK_ENABLED" class="mt-8 pt-6 border-t border-stone-200/60">
               <p class="text-center text-xs text-stone-400 uppercase tracking-wider mb-4">演示账号 · 一键填充（仅演示站）</p>
               <div class="grid grid-cols-4 gap-3">
                 <button type="button" @click="fillTestAccount('admin', 'admin123')"

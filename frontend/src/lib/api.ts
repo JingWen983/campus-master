@@ -12,7 +12,6 @@
  * - 用于纯前端部署（无 C++ 后端环境）
  */
 import { toast } from '../composables/useToast'
-import { isMockEnabled, mockRequest } from '../mock'
 
 const API_BASE = ''
 
@@ -62,8 +61,20 @@ export async function apiRequest<T = any>(
   url: string,
   data?: any
 ): Promise<ApiResponse<T>> {
-  // Mock 模式：GitHub Pages 纯前端 Demo，无 C++ 后端
-  if (isMockEnabled()) {
+  // Mock 模式：GitHub Pages 纯前端 Demo，无 C++ 后端。
+  //
+  // 为什么这里用**内联常量判断 + 动态 import**，而不是调用 mock 模块里的 isMockEnabled()：
+  //   * vite.config.ts 的 define 只做「字面量替换」，不做代码内联 —— 在**另一个模块**里的
+  //     `import.meta.env.VITE_USE_MOCK === 'true'` 会被替换成 `'false' === 'true'` 并折叠为
+  //     false，但 mock 模块自身的导出会被继续保留；
+  //   * 原本 `import { isMockEnabled, mockRequest } from '../mock'` 是无条件静态导入，
+  //     Rollup 无法据此摇掉该模块 → mock 的 localStorage 键、提示语等字符串全部进入
+  //     非 mock 产物。CI 的 F1 守卫（ci.yml 的 `grep campus_mock_db_v1`）因此**必然失败**，
+  //     与「是否真的启用了 mock」无关（batch 0 起 CI 的 package job 一直红）。
+  //   * 现在：条件内联后 'false' === 'true' → false，分支成为静态死代码；
+  //     `import('../mock')` 只存在于该死分支内 → Rollup 直接移除该分支与整个 mock chunk。
+  if (import.meta.env.VITE_USE_MOCK === 'true') {
+    const { mockRequest } = await import('../mock')
     return mockRequest<T>(method, url, data)
   }
 
