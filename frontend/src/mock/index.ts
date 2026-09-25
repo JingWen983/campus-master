@@ -134,6 +134,11 @@ interface ParentMessage {
  * must_change_password 置为 true 再登录，即可完整走通「被门禁 → 改密 → 放行」路径
  * （t18 的验证脚本就是这么做的），所以 T7 的前端分支是可测的，不是死代码。
  */
+// 评价维度名映射（与后端 routes_teacher.cpp:750-756 保持一致）。
+// 批次 1 起提为**模块级**：教师端与学生端原先各自声明一份局部副本，
+// 家长端现在也要用它把 dimension_id 映射成 dimension_name（真后端由 get_dimension_name 完成）。
+const dimensionNames: Record<number, string> = { 1: '德育', 2: '智育', 3: '体育', 4: '美育', 5: '劳育' }
+
 const SEED_USERS: User[] = [
   { id: '1', username: 'admin', name: '系统管理员', role_id: 1, points: 0 },
   { id: '2', username: 'teacher', name: '张老师', role_id: 2, className: '三年级一班' },
@@ -571,7 +576,6 @@ const routes: Route[] = [
     // 与后端一致：只返回该教师所带班级学生的评价
     // （后端 SQL 见 routes_teacher.cpp:740-748）
     const studentIds = studentsForTeacher(db, db.currentSession.user_id).map(s => s.id)
-    const dimensionNames: Record<number, string> = { 1: '德育', 2: '智育', 3: '体育', 4: '美育', 5: '劳育' }
     const data = db.evaluations
       .filter(e => studentIds.includes(e.student_id))
       .map(e => {
@@ -752,16 +756,69 @@ const routes: Route[] = [
     return { code: 200, data: { ...student, rank } }
   }},
   { method: 'GET', pattern: /^\/api\/parent\/student\/([^/]+)\/points$/, paramNames: ['id'], handler: (db, _body, params) => {
-    return { code: 200, data: db.points.filter(p => p.student_id === params[0]) }
+    // 字段形状必须与真后端 routes_parent.cpp:278-288 一致：
+    //   id / points / type（奖励|扣除）/ reason / time
+    // 修复前直接回 db.points 原样元素（只有 created_at、没有 type/time），
+    // 而 ParentApp.vue 读的是 record.type 与 record.time → 积分页整列空白。
+    const records = db.points
+      .filter(p => p.student_id === params[0])
+      .map(p => ({
+        id: p.id,
+        points: p.points,
+        type: p.points >= 0 ? '奖励' : '扣除',
+        reason: p.reason,
+        time: p.created_at,
+      }))
+    return { code: 200, data: records }
   }},
   { method: 'GET', pattern: /^\/api\/parent\/student\/([^/]+)\/evaluation$/, paramNames: ['id'], handler: (db, _body, params) => {
-    return { code: 200, data: db.evaluations.filter(e => e.student_id === params[0]) }
+    // 与真后端 routes_parent.cpp:324-338 一致：id / dimension_id / dimension_name /
+    // score / comment / evaluator_name / time（ParentApp 读 dimension_name / evaluator_name / time）
+    const list = db.evaluations
+      .filter(e => e.student_id === params[0])
+      .map(e => ({
+        id: e.id,
+        dimension_id: Number(e.dimension_id),
+        dimension_name: dimensionNames[Number(e.dimension_id)] || '',
+        score: e.score,
+        comment: e.comment,
+        evaluator_name: e.evaluator_name || '',
+        time: e.created_at,
+      }))
+    return { code: 200, data: list }
   }},
   { method: 'GET', pattern: /^\/api\/parent\/student\/([^/]+)\/redemptions$/, paramNames: ['id'], handler: (db, _body, params) => {
-    return { code: 200, data: db.redemptions.filter(r => r.student_id === params[0]) }
+    // 与真后端 routes_parent.cpp:373-380 一致：id / item_id / item_name / cost / time
+    const list = db.redemptions
+      .filter(r => r.student_id === params[0])
+      .map(r => ({
+        id: r.id,
+        item_id: r.item_id,
+        item_name: r.item_name || '',
+        cost: r.cost,
+        time: r.created_at,
+      }))
+    return { code: 200, data: list }
   }},
   { method: 'GET', pattern: /^\/api\/parent\/student\/([^/]+)\/messages$/, paramNames: ['id'], handler: (db, _body, params) => {
-    return { code: 200, data: db.messages.filter(m => m.student_id === params[0]) }
+    // 与真后端 routes_parent.cpp:418-434 一致：id / sender_type / sender_id /
+    // content / reply_to / created_at / read_status。
+    // 修复前回的是 mock 自己的 ParentMessage（parent_id/parent_name/is_read/reply），
+    // ParentApp 依赖 msg.sender_type 区分左右气泡 → 全部落成「教师」侧。
+    const list = db.messages
+      .filter(m => m.student_id === params[0])
+      .map(m => ({
+        id: m.id,
+        // mock 的消息没有 sender_type 字段：有 reply 的表示教师已回复（学生/家长侧的展示），
+        // 其余按家长发起处理。口径与演示数据的语义一致。
+        sender_type: m.reply ? 'teacher' : 'parent',
+        sender_id: m.parent_id || '',
+        content: m.content,
+        reply_to: null,
+        created_at: m.created_at,
+        read_status: Number(m.is_read) || 0,
+      }))
+    return { code: 200, data: list }
   }},
   { method: 'POST', pattern: /^\/api\/parent\/student\/([^/]+)\/messages$/, paramNames: ['id'], handler: (db, body, params) => {
     if (!db.currentSession) return { code: 401, msg: '未登录' }
