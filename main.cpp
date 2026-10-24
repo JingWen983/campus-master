@@ -13,10 +13,13 @@
 #include <thread>
 #include <chrono>
 #include <ctime>
+#include <atomic>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+#include "self_update.h"
 
 // 全局配置
 ServerConfig g_config;
@@ -738,5 +741,8 @@ int main() {
     Logger::info("服务器开始监听 " + g_config.host + ":" + std::to_string(g_config.port));
     svr.listen(g_config.host.c_str(), g_config.port);
 
+    // 正常不会走到这里（Ctrl+C 退出 listen 返回）。在线自更新不走本路径：
+    // routes_admin 的 apply 线程直接 launch 脚本 + ExitProcess(62)，
+    // 由 update.bat 接力完成"备份→替换→重启"（见 self_update.h 顶部说明）。
     return 0;
 }

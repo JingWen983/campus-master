@@ -3,9 +3,12 @@
 #include "models.h"
 #include "sha256.h"
 #include "logger.h"
+#include "self_update.h"
 #include <unordered_map>
 #include <regex>
 #include <filesystem>
+#include <thread>
+#include <chrono>
 
 // 辅助函数：安全获取字符串字段（处理 NULL 情况）
 static std::string get_string_field(const json& row, const std::string& key) {
@@ -2045,5 +2048,125 @@ void register_admin_routes(httplib::Server& svr) {
         }
 
         res.set_content(response.dump(), "application/json");
+    });
+
+    // ====== 在线自更新（仅管理员，Windows 平台） ======
+    // 流程：前端探测好最快镜像 → POST download（白名单 URL）→ 轮询 status
+    //      → POST apply 确认 → 服务器生成 update.bat 并以退出码 62 优雅退出，
+    //        main() 检测到 62 后启动脚本接力替换文件（详见 self_update.h）。
+    auto require_admin_strict = [&](const httplib::Request& req, httplib::Response& res) -> std::string {
+        if (!check_permission_middleware(req, res, "system:manage")) return "";
+        std::string session_id = get_cookie_value(req, "sid");
+        std::string user_id = verify_session(session_id);
+        User u;
+        if (user_id.empty() || !find_user_by_id_copy(user_id, u) || u.role_id != 1) {
+            res.status = 403;
+            res.set_content(json{{"code", 403}, {"msg", "仅管理员可执行在线更新"}}.dump(), "application/json");
+            return "";
+        }
+        return user_id;
+    };
+
+    // A. 下载新版本（body: {url, version}）
+    svr.Post("/api/admin/update/download", [&](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(req, res);
+        if (!require_csrf(req, res)) return;
+        if (require_admin_strict(req, res).empty()) return;
+#ifdef _WIN32
+        try {
+            auto body = json::parse(req.body);
+            std::string url = body.value("url", "");
+            std::string version = body.value("version", "");
+            if (url.empty() || version.empty()) {
+                res.set_content(json{{"code", 400}, {"msg", "缺少 url 或 version"}}.dump(), "application/json");
+                return;
+            }
+            json r = upd::download_release(url, version);
+            json response = {{"code", r.value("ok", false) ? 200 : 502},
+                             {"msg", r.value("ok", false) ? "下载完成" : r.value("error", "下载失败")},
+                             {"data", r}};
+            res.set_content(response.dump(), "application/json");
+        } catch (json::parse_error& e) {
+            res.set_content(json{{"code", 400}, {"msg", "请求数据格式错误"}}.dump(), "application/json");
+        }
+#else
+        res.set_content(json{{"code", 400}, {"msg", "自更新仅支持 Windows 平台"}}.dump(), "application/json");
+#endif
+    });
+
+    // B. 进度查询（前端轮询；phase: downloading/staging/ready/error）
+    svr.Get("/api/admin/update/status", [&](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        if (require_admin_strict(req, res).empty()) return;
+        json response = {{"code", 200}, {"data", {
+            {"phase", upd::g_update_state.phase},
+            {"target_version", upd::g_update_state.target_version},
+            {"mirror", upd::g_update_state.mirror},
+            {"bytes", upd::g_update_state.bytes},
+            {"total", upd::g_update_state.total},
+            {"error", upd::g_update_state.error}
+        }}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // C. 确认应用更新：解压 → 生成脚本 → 优雅退出（退出码 62 → main 启动脚本接力）
+    //    body: {restart?: bool}  默认自动重启
+    svr.Post("/api/admin/update/apply", [&](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(req, res);
+        if (!require_csrf(req, res)) return;
+        std::string admin_id = require_admin_strict(req, res);
+        if (admin_id.empty()) return;
+#ifdef _WIN32
+        if (upd::g_update_state.phase != "ready" && upd::g_update_state.phase != "staging") {
+            res.set_content(json{{"code", 400},
+                {"msg", "尚无可应用的更新（请先完成下载）"}}.dump(), "application/json");
+            return;
+        }
+        bool restart = true;
+        try {
+            auto body = json::parse(req.body);
+            restart = body.value("restart", true);
+        } catch (...) { /* 无 body 或解析失败按默认重启 */ }
+
+        // ① 解压
+        json staged = upd::stage_release();
+        if (!staged.value("ok", false)) {
+            res.set_content(json{{"code", 502},
+                {"msg", staged.value("error", "解压失败")}, {"data", staged}}.dump(), "application/json");
+            return;
+        }
+        // ② 生成脚本
+        json ready = upd::prepare_apply(staged.value("stage_dir", "update_stage"), restart);
+        if (!ready.value("ok", false)) {
+            res.set_content(json{{"code", 500},
+                {"msg", ready.value("error", "生成更新脚本失败")}}.dump(), "application/json");
+            return;
+        }
+        Logger::info("自更新：管理员 " + admin_id + " 确认应用更新，服务器将优雅退出");
+
+        // ③ 直接在 detached 线程里：启动接力脚本 → 短暂延迟让响应送达 → 强制退出进程。
+        //    为什么不用 svr.stop() + 优雅 join：实测 stop() 在有在途连接时可能让主线程
+        //    卡死（六轮复现）。update.bat 本身就会轮询等待本进程退出（最长 60 秒），
+        //    SQLite WAL 模式下进程被终止也不会损坏库文件（下次打开自动恢复），
+        //    因此"脚本先行 + ExitProcess"是最短且无死锁的路径。
+        res.set_content(json{{"code", 200},
+                             {"msg", "服务器即将退出并完成更新，请稍候 10-30 秒后刷新页面"},
+                             {"data", {{"restart", restart}}}}.dump(), "application/json");
+
+        std::thread([]() {
+            // 先启动脚本（脚本第一件事是轮询等 server.exe 退出）
+            if (!upd::launch_update_script()) {
+                Logger::error("自更新：脚本启动失败，取消退出（服务继续运行，可重试 apply）");
+                upd::g_update_state.phase = "error";
+                upd::g_update_state.error = "更新脚本启动失败";
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));   // 让 HTTP 响应送达客户端
+            Logger::info("自更新：ExitProcess(62) —— update.bat 接管后续安装");
+            ExitProcess(62);
+        }).detach();
+#else
+        res.set_content(json{{"code", 400}, {"msg", "自更新仅支持 Windows 平台"}}.dump(), "application/json");
+#endif
     });
 }
