@@ -54,7 +54,10 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
+        # VITE_APP_VERSION 注入应用版本号（检查更新功能对比用），值为 tag 去掉 v 前缀
         run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
 
       - name: Verify frontend dist
         shell: bash
@@ -219,3 +222,63 @@ jobs:
             --notes-file release_notes.md
 
           echo "Release $TAG created successfully"
+
+      # ===== 9a. 从 release notes 提取「本版要点」段，供 update.json 使用 =====
+      - name: Extract release notes body
+        id: notes_body
+        shell: bash
+        run: |
+          BODY=$(python - <<'PYEOF'
+          import os
+          try:
+              with open('release_notes.md', 'r', encoding='utf-8') as f:
+                  text = f.read()
+          except Exception:
+              print(''); raise SystemExit
+          seg = text.split('## 本版要点', 1)
+          if len(seg) < 2:
+              print(''); raise SystemExit
+          body = seg[1].split('##', 1)[0].strip()
+          # 多行转义供 step output 使用（用 %0A 换行、%25 转义百分号）
+          print(body.replace('%', '%25').replace('\n', '%0A').replace('\r', ''))
+          PYEOF
+          )
+          echo "notes=$BODY" >> $GITHUB_OUTPUT
+          echo "Extracted notes length: ${#BODY}"
+
+      # ===== 9b. 更新 update.json（检查更新功能的版本清单）并提交回 main =====
+      # 客户端管理员端通过 jsDelivr/raw/gh 镜像竞速拉取本文件判断是否有新版本。
+      - name: Update update.json manifest
+        shell: bash
+        run: |
+          set -e
+          TAG="${{ steps.ver.outputs.tag }}"
+          VER="${TAG#v}"
+          NOTES="${{ steps.notes_body.outputs.notes }}"
+
+          # 写入新清单：version=tag 去 v 前缀；notes=本版要点；published_at=今天。
+          # python 在 windows-latest 自带；写失败不阻塞发布（update.json 保持旧值）。
+          python - <<'PYEOF' || echo "WARN: update.json 更新失败，保留旧值"
+          import json, os, datetime
+          tag = os.environ.get('TAG', '')
+          ver = tag.lstrip('v')
+          notes = os.environ.get('NOTES', '').replace('%0A', '\n').replace('%25', '%')
+          manifest = {"version": ver, "notes": notes, "published_at": datetime.date.today().isoformat(), "min_version": "0.0.1"}
+          with open('update.json', 'w', encoding='utf-8') as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          print('update.json updated:', manifest['version'])
+          PYEOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          if git diff --cached --quiet; then
+            echo "update.json 未变化，跳过提交"
+          else
+            git commit -m "chore(release): update.json → ${TAG}（检查更新清单，自动提交）"
+            git push origin HEAD:main
+          fi
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          NOTES: ${{ steps.notes_body.outputs.notes }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

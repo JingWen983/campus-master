@@ -29,7 +29,11 @@ import Pagination from '../../components/Pagination.vue'
 import StatCard from '../../components/StatCard.vue'
 import RoleBadge from '../../components/RoleBadge.vue'
 import CardPrintModal from '../../components/CardPrintModal.vue'
+import UpdateChecker from '../../components/UpdateChecker.vue'
 import { exportCardsXlsx } from '../../lib/cardExport'
+import {
+  CURRENT_VERSION, checkForUpdate, compareVersions, getLastCheck, setLastCheck,
+} from '../../lib/updater'
 
 // ===== Types =====
 interface User {
@@ -1144,6 +1148,31 @@ const showCardPrint = ref(false)
 const printCards = ref<{ code: string; face_value: number; bound_student_name?: string }[]>([])
 const printBatchNo = ref('')
 
+// ===== 检查更新（仅管理员） =====
+const showUpdateChecker = ref(false)
+const updateAvailable = ref(false)
+const updateLatestVersion = ref('')
+const updateCheckerRef = ref<InstanceType<typeof UpdateChecker> | null>(null)
+
+async function silentUpdateCheck() {
+  // dev 构建不检查（无版本可比）
+  if (CURRENT_VERSION === 'dev') return
+  try {
+    const r = await checkForUpdate()
+    setLastCheck(new Date().toISOString())
+    if (!r) return
+    const latest = r.manifest.version
+    if (compareVersions(latest, CURRENT_VERSION) > 0) {
+      updateAvailable.value = true
+      updateLatestVersion.value = latest
+    }
+  } catch { /* 静默失败不影响使用 */ }
+}
+
+function openUpdateChecker() {
+  showUpdateChecker.value = true
+}
+
 const cardTotalPages = computed(() => Math.ceil(cardTotal.value / cardPageSize) || 1)
 
 /** 教师列表（生成弹窗"负责教师"下拉用；users 在 onMounted 已全量加载） */
@@ -1461,6 +1490,8 @@ onMounted(async () => {
   await loadProducts()
   await loadExchangeRecords()
   nextTick(() => dashboardChartRef.value?.resize())
+  // 登录后静默检查更新（仅管理员；localStorage 记忆的跳过版本只压徽章不弹窗）
+  silentUpdateCheck()
 })
 </script>
 
@@ -1836,6 +1867,29 @@ onMounted(async () => {
       </div>
 
       <div class="space-y-6">
+        <!-- 检查更新（仅管理员） -->
+        <div class="glass-card rounded-3xl p-6 enter-up">
+          <div class="flex flex-wrap items-center gap-4">
+            <div class="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-arrows-rotate"></i>
+            </div>
+            <div class="flex-1 min-w-[220px]">
+              <h3 class="font-display text-xl font-bold text-stone-800">软件更新</h3>
+              <p class="text-sm text-stone-500 mt-0.5">
+                当前版本 <b class="text-stone-700">{{ CURRENT_VERSION }}</b>
+                <template v-if="updateAvailable">
+                  <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-bold">
+                    <i class="fa-solid fa-bell"></i>可更新到 {{ updateLatestVersion }}
+                  </span>
+                </template>
+              </p>
+            </div>
+            <button type="button" class="btn-ruby px-5 py-2.5 rounded-2xl text-sm font-medium shrink-0" @click="openUpdateChecker">
+              <i class="fa-solid fa-arrows-rotate mr-2"></i>检查更新
+            </button>
+          </div>
+        </div>
+
         <!-- 基本配置 -->
         <div class="glass-card rounded-3xl p-6 enter-up enter-delay-1">
           <div class="flex items-center gap-3 mb-5">
@@ -2945,6 +2999,9 @@ onMounted(async () => {
       :batch-no="printBatchNo"
       @close="showCardPrint = false"
     />
+
+    <!-- Modal 15: 检查更新（仅管理员） -->
+    <UpdateChecker ref="updateCheckerRef" v-model:show="showUpdateChecker" />
   </AppLayout>
 </template>
 

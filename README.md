@@ -269,6 +269,16 @@ g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o route
 
 推送 `v*.*.*` 格式的 tag（或在 Actions 页面手动触发 Release 工作流），GitHub Actions 会自动编译并发布带 `server.exe` + 前端产物的 zip 包，可直接从 [Releases](https://github.com/JingWen983/campus-master/releases) 下载解压运行。
 
+### 5.5 版本清单与检查更新（update.json）
+
+仓库根的 `update.json` 是**检查更新功能**的版本清单，管理员端登录后会自动检查：
+
+- **检查通道**（并发竞速，任一可用即可）：`jsDelivr CDN` / `GitHub Raw` / `gh-proxy.com` / `ghfast.top`；
+- **下载通道**：Release zip 附件支持 `gh-proxy.com` / `ghfast.top` 镜像与 GitHub 官方直链，按 HEAD 探测延迟自动推荐最快通道；
+- **发布流程**：Release 工作流在发布成功后会**自动把 `update.json` 的 version/notes 更新为本版并提交回 main**（notes 取自 release notes 的「本版要点」段），无需手动维护；
+- 若自动提交失败，手动更新 `update.json` 的 `version` / `notes` / `published_at` 字段后提交即可；
+- 该功能**仅管理员可见**（系统配置 → 软件更新；登录后静默检查，有新版时系统配置 tab 与更新面板出现提醒）。
+
 ---
 
 ## 6. 配置说明
