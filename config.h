@@ -44,6 +44,12 @@ struct ServerConfig {
     // 可信代理白名单（IP 字面量）。**即使 trust_proxy_headers=true，白名单为空也不采信 XFF**
     // —— 避免「开了开关但没配白名单」这种等于全信任的误配置。
     std::vector<std::string> trusted_proxies;
+
+    // ====== 两阶段兑换：超时未核销自动退回 =====
+    // 单位小时，默认 168（7 天）。0 或负数 = 禁用自动退回。
+    // 学生提交兑换即扣积分锁库存；超过时限后勤仍未核销时，
+    // 后台线程自动退回积分、返还库存，状态置为 expired（已过期退回）。
+    int redemption_expire_hours = 168;
 };
 
 inline ServerConfig load_config(const std::string& config_path = "config.json") {
@@ -91,6 +97,10 @@ inline ServerConfig load_config(const std::string& config_path = "config.json") 
                 config.cors_allowed_origins =
                     cfg["cors"]["allowed_origins"].get<std::vector<std::string>>();
             }
+        }
+        if (cfg.contains("redemption")) {
+            // 兑换超时退回时限（小时），0 或负数视为禁用自动退回
+            config.redemption_expire_hours = cfg["redemption"].value("expire_hours", config.redemption_expire_hours);
         }
         if (cfg.contains("https")) {
             config.https_enabled = cfg["https"].value("enabled", false);

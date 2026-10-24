@@ -77,12 +77,14 @@ void register_static_routes(httplib::Server& svr) {
     // 2. HTML 页面路由（表驱动，替代 5 段重复 ifstream handler）
     // URL → FRONTEND_DIR 下的文件名
     static const std::vector<std::pair<std::string, std::string>> html_routes = {
-        {"/",            "index.html"},
-        {"/index.html",  "index.html"},
-        {"/admin.html",  "admin.html"},
-        {"/teacher.html","teacher.html"},
-        {"/student.html","student.html"},
-        {"/parent.html", "parent.html"},
+        {"/",               "index.html"},
+        {"/index.html",     "index.html"},
+        {"/admin.html",     "admin.html"},
+        {"/teacher.html",   "teacher.html"},
+        {"/student.html",   "student.html"},
+        {"/parent.html",    "parent.html"},
+        {"/screen.html",    "screen.html"},     // 大屏端（免登录排行榜展示）
+        {"/logistics.html", "logistics.html"},  // 后勤端（登录后核销兑换）
     };
     for (const auto& route : html_routes) {
         svr.Get(route.first.c_str(), [file = route.second](const httplib::Request& req, httplib::Response& res) {

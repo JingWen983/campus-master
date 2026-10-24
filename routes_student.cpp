@@ -234,8 +234,10 @@ void register_student_routes(httplib::Server& svr) {
 
         json records_json = json::array();
 
+        // 两阶段兑换：SELECT 增补 code / status 列。
+        // 旧库存量记录经迁移后 status='redeemed'；极端情况下 status 为空也按已兑换兜底显示。
         json result = db.query_bind(
-            "SELECT r.id, r.student_id, r.item_id, r.cost, r.created_at, "
+            "SELECT r.id, r.student_id, r.item_id, r.cost, r.code, r.status, r.created_at, "
             "m.name as item_name, m.description as item_description "
             "FROM redemption_records r "
             "LEFT JOIN mall_items m ON r.item_id = m.id "
@@ -244,11 +246,18 @@ void register_student_routes(httplib::Server& svr) {
             {SqliteDb::Bind(user_id)});
         for (const auto& row : result) {
             json record;
+            std::string status = row.value("status", "");
+            if (status.empty()) status = "redeemed";   // 兜底：无状态视为已兑换
             record["id"] = row.value("id", 0);
             record["item_id"] = row.value("item_id", 0);
             record["item_name"] = row.value("item_name", "");
             record["item_description"] = row.value("item_description", "");
             record["cost"] = row.value("cost", 0);
+            record["code"] = row.value("code", "");
+            record["status"] = status;
+            record["status_text"] = status == "pending" ? "未兑换"
+                                  : status == "expired" ? "已过期退回"
+                                  : status == "redeemed" ? "已兑换" : "已兑换";
             record["time"] = row.value("created_at", "");
             records_json.push_back(record);
         }

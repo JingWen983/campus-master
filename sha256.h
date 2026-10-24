@@ -294,4 +294,37 @@ inline std::string generate_random_password() {
     return password;
 }
 
+// ====== 两阶段兑换：8 位验证码（XXXX-XXXX，大写字母+数字，排除易混淆字符） ======
+// 字符集剔除 0/O/1/I：避免学生抄写、后勤录入时混淆。
+// 32^8 ≈ 1.1 万亿组合，配合数据库部分唯一索引（code IS NOT NULL）足够全校规模。
+inline std::string generate_redemption_code() {
+    static const char alphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    std::random_device rd;
+    std::string code;
+    code.reserve(9);
+    for (int i = 0; i < 8; i++) {
+        if (i == 4) code += '-';   // 第 4 位后插分隔符 → XXXX-XXXX
+        code += alphabet[rd() % 32];
+    }
+    return code;
+}
+
+// 归一化用户输入的验证码：去空格/横线、转大写、重新插入横线。
+// "7k2m 9xqa" / "7K2M9XQA" / "7k2m-9xqa" → "7K2M-9XQA"
+// 顺手把易混淆字符映射掉：0→O、1→I（生成端已排除，此处仅容错用户输入）。
+// 长度（去分隔符后）不等于 8 → 返回空串表示非法。
+inline std::string normalize_redemption_code(const std::string& raw) {
+    std::string digits;
+    digits.reserve(8);
+    for (char c : raw) {
+        if (c == ' ' || c == '-' || c == '\t') continue;
+        if (c >= 'a' && c <= 'z') c = char(c - 32);
+        if (c == '0') { digits += 'O'; continue; }
+        if (c == '1') { digits += 'I'; continue; }
+        if ((c >= '2' && c <= '9') || (c >= 'A' && c <= 'Z')) digits += c;
+    }
+    if (digits.size() != 8) return "";
+    return digits.substr(0, 4) + "-" + digits.substr(4, 4);
+}
+
 #endif

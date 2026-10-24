@@ -1895,6 +1895,7 @@ onMounted(async () => {
             <option :value="2">教师</option>
             <option :value="3">学生</option>
             <option :value="4">家长</option>
+            <option :value="5">后勤</option>
           </select>
         </div>
         <div v-if="newUser.role_id === 3">
@@ -2092,6 +2093,7 @@ onMounted(async () => {
             <option :value="2">教师</option>
             <option :value="3">学生</option>
             <option :value="4">家长</option>
+            <option :value="5">后勤</option>
           </select>
         </div>
         <div v-if="editUser.role_id === 3">

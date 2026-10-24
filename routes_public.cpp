@@ -442,9 +442,28 @@ void register_public_routes(httplib::Server& svr) {
                 return;   // RAII 回滚库存
             }
 
+            // ====== 两阶段兑换：生成全局唯一 8 位验证码（XXXX-XXXX） ======
+            // 32^8 ≈ 1.1e12 组合 + code 部分唯一索引兜底；冲突重试上限 10 次
+            // （实际冲突概率可忽略，上限只是防御性兜底）。
+            std::string code;
+            for (int attempt = 0; attempt < 10; attempt++) {
+                std::string candidate = generate_redemption_code();
+                json dup = db.query_bind(
+                    "SELECT 1 FROM redemption_records WHERE code = ?",
+                    {SqliteDb::Bind(candidate)});
+                if (dup.empty()) { code = candidate; break; }
+            }
+            if (code.empty()) {
+                response = {{"code", 500}, {"msg", "验证码生成失败，请重试"}};
+                res.set_content(response.dump(), "application/json");
+                return;   // RAII 回滚库存与积分
+            }
+
             if (!db.execute_bind(
-                    "INSERT INTO redemption_records (student_id, item_id, cost, created_at) VALUES (?, ?, ?, ?)",
-                    {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost), SqliteDb::Bind(get_current_time())})) {
+                    "INSERT INTO redemption_records (student_id, item_id, cost, code, status, created_at) "
+                    "VALUES (?, ?, ?, ?, 'pending', ?)",
+                    {SqliteDb::Bind(user_id), SqliteDb::Bind((long long)item_id), SqliteDb::Bind((long long)cost),
+                     SqliteDb::Bind(code), SqliteDb::Bind(get_current_time())})) {
                 response = {{"code", 500}, {"msg", "兑换记录写入失败"}};
                 res.set_content(response.dump(), "application/json");
                 return;   // RAII 回滚库存与积分
@@ -456,10 +475,11 @@ void register_public_routes(httplib::Server& svr) {
                 return;
             }
 
+            // 两阶段兑换：此时为"未兑换"（pending），学生凭验证码/二维码到后勤核销
             response = {
                 {"code", 200},
-                {"msg", "兑换成功！"},
-                {"data", {{"remain_points", new_points}}}
+                {"msg", "兑换成功！请凭验证码到后勤处领取"},
+                {"data", {{"remain_points", new_points}, {"redemption_code", code}}}
             };
         } catch (json::parse_error& e) {
             response = {{"code", 400}, {"msg", "请求数据格式错误"}};
@@ -486,6 +506,76 @@ void register_public_routes(httplib::Server& svr) {
             ranks.push_back(item);
         }
 
+        json response = {{"code", 200}, {"data", ranks}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ====== 大屏端（免登录公开 API，仅供展示排行，不含任何个人敏感信息以外的字段） ======
+    // 8.5 大屏学生总榜：全校学生按积分降序（limit 200 防超长名单拖垮大屏渲染）
+    svr.Get("/api/screen/leaderboard", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        json list = json::array();
+        json result = db.query(
+            "SELECT id, name, className, points FROM users "
+            "WHERE role_id = 3 AND points > 0 "
+            "ORDER BY points DESC, id LIMIT 200");
+        int rank = 1;
+        for (const auto& row : result) {
+            list.push_back({{"rank", rank++},
+                            {"name", row.value("name", "")},
+                            {"className", row.value("className", "")},
+                            {"points", row.value("points", 0)}});
+        }
+        json response = {{"code", 200},
+                         {"data", {{"students", list}, {"updated_at", get_current_time()}}}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // 8.6 大屏年级榜：每个年级一组，组内按班级总分排名
+    // 口径（需求确认）：users.className JOIN classes.name → classes.grade 分组
+    svr.Get("/api/screen/grade-rank", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        json result = db.query(
+            "SELECT c.grade, u.className, SUM(u.points) AS totalPoints, COUNT(*) AS studentCount "
+            "FROM users u JOIN classes c ON u.className = c.name "
+            "WHERE u.role_id = 3 AND u.className IS NOT NULL AND u.className != '' "
+            "GROUP BY c.grade, u.className ORDER BY c.grade, totalPoints DESC");
+        json grades = json::array();
+        std::string current_grade;
+        json group;
+        int rank_in_grade = 0;
+        for (const auto& row : result) {
+            std::string grade = row.value("grade", "");
+            if (grade != current_grade) {
+                if (!current_grade.empty()) grades.push_back(group);
+                current_grade = grade;
+                group = {{"grade", grade}, {"classes", json::array()}};
+                rank_in_grade = 0;
+            }
+            group["classes"].push_back({{"rank", ++rank_in_grade},
+                                        {"name", row.value("className", "")},
+                                        {"totalPoints", row.value("totalPoints", 0)},
+                                        {"studentCount", row.value("studentCount", 0)}});
+        }
+        if (!current_grade.empty()) grades.push_back(group);
+        json response = {{"code", 200}, {"data", grades}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // 8.7 大屏班级榜：全校班级总分排名（与 /api/rank/class 同口径，但带 rank 字段）
+    svr.Get("/api/screen/class-rank", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        json ranks = json::array();
+        json result = db.query(
+            "SELECT className, SUM(points) AS totalPoints FROM users "
+            "WHERE role_id = 3 AND className IS NOT NULL AND className != '' "
+            "GROUP BY className ORDER BY totalPoints DESC");
+        int rank = 1;
+        for (const auto& row : result) {
+            ranks.push_back({{"rank", rank++},
+                             {"name", row.value("className", "")},
+                             {"totalPoints", row.value("totalPoints", 0)}});
+        }
         json response = {{"code", 200}, {"data", ranks}};
         res.set_content(response.dump(), "application/json");
     });
@@ -616,5 +706,134 @@ void register_public_routes(httplib::Server& svr) {
         }
 
         res.set_content(response.dump(), "application/json");
+    });
+
+    // ====== 后勤核销端（需后勤/管理员角色，权限 redemption:redeem） ======
+
+    // 10. 按验证码查询兑换单详情（扫码 / 手输共用入口）
+    svr.Get("/api/logistics/lookup", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(req, res);
+        if (!check_permission_middleware(req, res, "redemption:redeem")) return;
+
+        std::string raw = req.get_param_value("code");
+        std::string code = normalize_redemption_code(raw);
+        if (code.empty()) {
+            res.status = 400;
+            json response = {{"code", 400}, {"msg", "验证码格式错误（应为 XXXX-XXXX）"}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+        json result = db.query_bind(
+            "SELECT r.id, r.status, r.cost, r.code, r.created_at, "
+            "s.name AS student_name, s.className, m.name AS item_name "
+            "FROM redemption_records r "
+            "LEFT JOIN users s ON r.student_id = s.id "
+            "LEFT JOIN mall_items m ON r.item_id = m.id "
+            "WHERE r.code = ?",
+            {SqliteDb::Bind(code)});
+        if (result.empty()) {
+            res.status = 404;
+            json response = {{"code", 404}, {"msg", "验证码不存在，请核对后重试"}};
+            res.set_content(response.dump(), "application/json");
+            return;
+        }
+        const auto& row = result[0];
+        json response = {{"code", 200}, {"data", {
+            {"id", row.value("id", 0)},
+            {"status", row.value("status", "")},
+            {"code", row.value("code", "")},
+            {"student_name", row.value("student_name", "")},
+            {"className", row.value("className", "")},
+            {"item_name", row.value("item_name", "")},
+            {"cost", row.value("cost", 0)},
+            {"time", row.value("created_at", "")}
+        }}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // 11. 待核销列表（后勤端每 5 秒轮询）
+    svr.Get("/api/logistics/pending", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        if (!check_permission_middleware(req, res, "redemption:redeem")) return;
+
+        json list = json::array();
+        json result = db.query(
+            "SELECT r.id, r.code, r.cost, r.created_at, "
+            "s.name AS student_name, s.className, m.name AS item_name "
+            "FROM redemption_records r "
+            "LEFT JOIN users s ON r.student_id = s.id "
+            "LEFT JOIN mall_items m ON r.item_id = m.id "
+            "WHERE r.status = 'pending' ORDER BY r.created_at DESC LIMIT 100");
+        for (const auto& row : result) {
+            list.push_back({{"id", row.value("id", 0)},
+                            {"code", row.value("code", "")},
+                            {"student_name", row.value("student_name", "")},
+                            {"className", row.value("className", "")},
+                            {"item_name", row.value("item_name", "")},
+                            {"cost", row.value("cost", 0)},
+                            {"time", row.value("created_at", "")}});
+        }
+        json response = {{"code", 200}, {"data", list}};
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // 12. 确认核销（pending → redeemed，记录核销人 redeemer_id 与核销时间）
+    svr.Post("/api/logistics/redeem", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(req, res);
+        if (!check_permission_middleware(req, res, "redemption:redeem")) return;
+        // 安全修复 V10：CSRF 校验
+        if (!require_csrf(req, res)) return;
+
+        std::string session_id = get_cookie_value(req, "sid");
+        std::string user_id = verify_session(session_id);
+
+        try {
+            auto req_json = json::parse(req.body);
+            std::string code = normalize_redemption_code(req_json.value("code", ""));
+            if (code.empty()) {
+                json response = {{"code", 400}, {"msg", "验证码格式错误（应为 XXXX-XXXX）"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            SqliteDb::Transaction txn(db);
+            if (!txn.active()) {
+                json response = {{"code", 500}, {"msg", "服务暂时不可用，请稍后重试"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            // 原子更新：仅 status='pending' 的单子能被核销。
+            // WHERE 条件本身就是防重防线 —— 已核销/已过期的单子影响 0 行，返回明确错误。
+            int affected = 0;
+            int rc = db.execute_bind_affected(
+                "UPDATE redemption_records SET status = 'redeemed', redeemed_at = ?, redeemer_id = ? "
+                "WHERE code = ? AND status = 'pending'",
+                {SqliteDb::Bind(get_current_time()), SqliteDb::Bind(user_id), SqliteDb::Bind(code)},
+                affected);
+            if (rc != 0 || affected != 1) {
+                // 区分「不存在」与「状态不对」给出更准确的提示
+                json exist = db.query_bind(
+                    "SELECT status FROM redemption_records WHERE code = ?",
+                    {SqliteDb::Bind(code)});
+                std::string msg = exist.empty() ? "验证码不存在，请核对后重试"
+                                  : exist[0].value("status", "") == "redeemed" ? "该兑换单已被核销，请勿重复操作"
+                                  : exist[0].value("status", "") == "expired" ? "该兑换单已过期退回，无法核销"
+                                  : "该验证码当前无法核销";
+                json response = {{"code", 400}, {"msg", msg}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (!txn.commit()) {
+                json response = {{"code", 500}, {"msg", "核销提交失败，请重试"}};
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            Logger::info("后勤核销成功：code=" + code + " operator=" + user_id);
+            json response = {{"code", 200}, {"msg", "核销成功"}};
+            res.set_content(response.dump(), "application/json");
+        } catch (json::parse_error& e) {
+            json response = {{"code", 400}, {"msg", "请求数据格式错误"}};
+            res.set_content(response.dump(), "application/json");
+        }
     });
 }

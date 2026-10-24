@@ -29,6 +29,7 @@ export const ROLE_NAMES: Record<number, string> = {
   2: '教师',
   3: '学生',
   4: '家长',
+  5: '后勤',
 }
 
 /** 跳转到对应角色主页（适配 GitHub Pages 子路径） */
@@ -42,6 +43,7 @@ export function getRoleHome(roleId: number): string {
       case 2: return 'teacher.html'
       case 3: return 'student.html'
       case 4: return 'parent.html'
+      case 5: return 'logistics.html'
       default: return ''
     }
   })()

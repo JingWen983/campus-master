@@ -13,10 +13,12 @@ import { checkAuth, logout } from '../../lib/auth'
 import { formatDateTime } from '../../lib/format'
 import { THEMES } from '../../lib/theme'
 import { STUDENT_NAV } from '../../lib/navConfig'
+import { makeQrDataUrl } from '../../lib/qrcode'
 import { toast } from '../../composables/useToast'
 import { confirmDialog } from '../../composables/useConfirm'
 import AppLayout from '../../components/AppLayout.vue'
 import BaseChart from '../../components/BaseChart.vue'
+import BaseModal from '../../components/BaseModal.vue'
 import EmptyState from '../../components/EmptyState.vue'
 
 // ===== Types =====
@@ -60,6 +62,10 @@ interface Redemption {
   item_description: string
   cost: number
   time: string
+  /** 两阶段兑换：验证码与状态 */
+  code?: string
+  status?: string
+  status_text?: string
 }
 
 interface LeaderboardEntry {
@@ -78,6 +84,8 @@ interface HistoryItem {
 
 interface RedeemResponse {
   remain_points: number
+  /** 两阶段兑换：8 位验证码（XXXX-XXXX） */
+  redemption_code?: string
 }
 
 // ===== State =====
@@ -96,6 +104,11 @@ const evaluations = ref<Evaluation[]>([])
 const redemptions = ref<Redemption[]>([])
 const leaderboard = ref<LeaderboardEntry[]>([])
 const radarChartRef = ref<InstanceType<typeof BaseChart>>()
+
+// ===== 两阶段兑换：验证码弹窗状态 =====
+const lastRedeemCode = ref('')
+const lastRedeemItem = ref('')
+const lastRedeemQr = ref('')
 
 // ===== Computed: 雷达图 option =====
 const radarOption = computed<EChartsOption>(() => {
@@ -223,7 +236,7 @@ async function redeem(item: MallItem) {
     return
   }
   const ok = await confirmDialog({
-    message: `确定花费 ${item.price} 积分兑换【${item.name}】吗？`,
+    message: `确定花费 ${item.price} 积分兑换【${item.name}】吗？兑换后请凭验证码到后勤处领取`,
     variant: 'primary',
     confirmText: '确认兑换',
   })
@@ -231,13 +244,38 @@ async function redeem(item: MallItem) {
   try {
     const res = await api.post<RedeemResponse>('/api/mall/redeem', { item_id: item.id })
     if (res.code === 200 && res.data) {
-      toast.success('兑换成功！')
       userInfo.value.points = res.data.remain_points
+      // 两阶段兑换：弹窗展示验证码 + 二维码（学生可截图保存去后勤核销）
+      const code = res.data.redemption_code || ''
+      if (code) {
+        lastRedeemCode.value = code
+        lastRedeemItem.value = item.name
+        lastRedeemQr.value = await makeQrDataUrl(code)
+      } else {
+        toast.success('兑换成功！')
+      }
       await Promise.all([fetchMallItems(), fetchRedemptions()])
     } else {
       toast.error(res.msg || '兑换失败')
     }
   } catch { /* api 层已提示 */ }
+}
+
+// 从兑换记录重新打开验证码弹窗（仅未兑换的单子可领取）
+async function showRedeemQr(record: Redemption) {
+  if (!record.code) {
+    toast.info('该记录为旧版兑换（无验证码），已直接完成')
+    return
+  }
+  lastRedeemCode.value = record.code
+  lastRedeemItem.value = record.item_name
+  lastRedeemQr.value = await makeQrDataUrl(record.code)
+}
+
+function statusBadgeClass(status?: string): string {
+  if (status === 'pending') return 'bg-amber-100 text-amber-700'
+  if (status === 'expired') return 'bg-stone-200 text-stone-500'
+  return 'bg-emerald-100 text-emerald-700'   // redeemed / 旧记录默认
 }
 
 // ===== Tab Switching =====
@@ -462,11 +500,58 @@ onMounted(async () => {
               <span class="font-display font-bold text-base text-orange-600 whitespace-nowrap">-{{ record.cost }}<span class="text-xs font-body font-normal text-stone-400"> 积分</span></span>
             </div>
             <p class="text-sm text-stone-500 mb-1 line-clamp-2">{{ record.item_description }}</p>
-            <p class="text-xs text-stone-400"><i class="fa-solid fa-clock mr-1"></i>{{ formatDateTime(record.time) }}</p>
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-xs text-stone-400"><i class="fa-solid fa-clock mr-1"></i>{{ formatDateTime(record.time) }}</p>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold" :class="statusBadgeClass(record.status)">
+                  {{ record.status_text || '已兑换' }}
+                </span>
+                <button
+                  v-if="record.status === 'pending' && record.code"
+                  class="text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-full transition"
+                  @click="showRedeemQr(record)"
+                >
+                  <i class="fa-solid fa-qrcode mr-1"></i>查看二维码
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- ====== 两阶段兑换：验证码 + 二维码弹窗 ====== -->
+    <BaseModal
+      :show="!!lastRedeemCode"
+      title="兑换成功"
+      icon="fa-circle-check"
+      icon-from="#6ee7b7"
+      icon-to="#059669"
+      max-width="max-w-md"
+      @close="lastRedeemCode = ''"
+    >
+      <div class="text-center py-2">
+        <p class="text-sm text-stone-500 mb-3">{{ lastRedeemItem }}</p>
+        <img
+          v-if="lastRedeemQr"
+          :src="lastRedeemQr"
+          alt="兑换二维码"
+          class="w-56 h-56 mx-auto rounded-2xl border-4 border-emerald-100 shadow-lg"
+        >
+        <p class="font-display text-3xl font-black tracking-[0.18em] text-stone-800 mt-5 select-all">
+          {{ lastRedeemCode }}
+        </p>
+        <p class="text-sm text-stone-500 mt-3 leading-relaxed">
+          请截图保存，凭<b>二维码</b>或<b>验证码</b>到后勤处领取
+        </p>
+        <p class="text-xs text-amber-600 mt-1.5"><i class="fa-solid fa-clock mr-1"></i>7 天内未领取将自动退回积分</p>
+      </div>
+      <template #footer>
+        <button class="btn-emerald px-8 py-2.5 rounded-2xl text-sm font-medium" @click="lastRedeemCode = ''">
+          我已保存
+        </button>
+      </template>
+    </BaseModal>
 
     <!-- ====== Tab 5: 班级风采榜 ====== -->
     <div v-show="currentTab === 'rank'">

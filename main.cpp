@@ -10,6 +10,9 @@
 #include <cstdio>
 #include <set>
 #include <string>
+#include <thread>
+#include <chrono>
+#include <ctime>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -72,6 +75,44 @@ static void migrate_users_must_change_password() {
     } else {
         Logger::error("迁移失败：ALTER TABLE users ADD COLUMN must_change_password");
     }
+}
+
+// ====== 两阶段兑换：redemption_records 旧库兼容迁移（不删库、不丢数据） ======
+// 旧表缺 code/status/redeemed_at/redeemer_id 列时 ALTER TABLE 逐列补齐；
+// 存量记录（旧流程"提交即完成"、无验证码）默认标记 status='redeemed'，
+// 因为它们在旧流程中积分与库存都已在提交时结清，语义上等价于"已兑换"。
+static void migrate_redemption_records() {
+    if (!db.isOpen()) return;
+    json has = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='redemption_records'");
+    if (has.empty()) return;   // 表尚不存在（全新库由 init_sql 创建，无需迁移）
+
+    auto has_col = [&](const char* col) {
+        json info = db.query("PRAGMA table_info(redemption_records)");
+        for (const auto& c : info) {
+            if (c.value("name", "") == col) return true;
+        }
+        return false;
+    };
+    if (has_col("code")) {
+        // 新 schema：只补建可能缺失的部分唯一索引（如索引段被单独删过）
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_redemption_code ON redemption_records(code) WHERE code IS NOT NULL");
+        return;
+    }
+
+    Logger::warning("检测到 redemption_records 旧 schema，执行 ALTER TABLE 兼容迁移（不删库）");
+    bool ok = true;
+    ok = ok && db.execute("ALTER TABLE redemption_records ADD COLUMN code TEXT");
+    ok = ok && db.execute("ALTER TABLE redemption_records ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+    ok = ok && db.execute("ALTER TABLE redemption_records ADD COLUMN redeemed_at DATETIME");
+    ok = ok && db.execute("ALTER TABLE redemption_records ADD COLUMN redeemer_id TEXT");
+    if (!ok) {
+        Logger::error("迁移失败：redemption_records 补列失败（详见上一条 SQL 错误）");
+        return;
+    }
+    // 存量记录：旧流程一步完成兑换，视为"已兑换"
+    db.execute("UPDATE redemption_records SET status = 'redeemed' WHERE status = 'pending'");
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_redemption_code ON redemption_records(code) WHERE code IS NOT NULL");
+    Logger::info("迁移完成：redemption_records 已支持两阶段兑换（存量记录标记为已兑换）");
 }
 
 // 首启（users 表为空）创建 4 个种子账号：
@@ -302,10 +343,18 @@ int main() {
                 student_id TEXT NOT NULL,
                 item_id INTEGER NOT NULL,
                 cost INTEGER NOT NULL,
+                code TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                redeemed_at DATETIME,
+                redeemer_id TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES users(id),
-                FOREIGN KEY (item_id) REFERENCES mall_items(id)
+                FOREIGN KEY (item_id) REFERENCES mall_items(id),
+                FOREIGN KEY (redeemer_id) REFERENCES users(id)
             );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_redemption_code
+                ON redemption_records(code) WHERE code IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS classes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -377,7 +426,8 @@ int main() {
                 (1, '管理员', '系统管理员，拥有所有权限'),
                 (2, '教师', '教师角色，管理学生和积分'),
                 (3, '学生', '学生角色，查看个人信息和兑换'),
-                (4, '家长', '家长角色，查看孩子学习成绩和积分情况');
+                (4, '家长', '家长角色，查看孩子学习成绩和积分情况'),
+                (5, '后勤', '后勤角色，核销学生积分兑换');
 
             INSERT OR IGNORE INTO permissions (id, name, code, description) VALUES
                 (1, '系统管理', 'system:manage', '系统配置管理'),
@@ -391,13 +441,15 @@ int main() {
                 (9, '留言管理', 'message:manage', '家校留言管理'),
                 (10, '班级管理', 'class:manage', '班级信息管理'),
                 (11, '兑换管理', 'redemption:manage', '兑换记录管理'),
-                (12, '数据导出', 'data:export', '数据导出与备份');
+                (12, '数据导出', 'data:export', '数据导出与备份'),
+                (13, '兑换核销', 'redemption:redeem', '后勤核销学生兑换');
 
             INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES
-                (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12),
+                (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13),
                 (2, 3), (2, 4), (2, 5), (2, 7), (2, 9), (2, 10), (2, 11),
                 (3, 6),
-                (4, 6), (4, 9), (4, 11);
+                (4, 6), (4, 9), (4, 11),
+                (5, 11), (5, 13);
 
             -- 安全修复 V18（B2）：种子用户**不再**内联在 SQL 里。
             -- 旧实现把 4 个账号（admin/teacher/student/parent）的无盐 SHA256 口令哈希
@@ -431,6 +483,9 @@ int main() {
             // 安全修复 V18（B2）：旧库缺列时先做 ALTER TABLE 兼容迁移（不删库），
             // 必须在 load_users_from_db() 之前完成，否则 SELECT 新列会失败。
             migrate_users_must_change_password();
+
+            // 两阶段兑换：redemption_records 旧表补列（不删库）
+            migrate_redemption_records();
 
             // 安全修复 V18（B2）：首启（users 表为空）生成随机强口令种子账号
             seed_default_users_if_empty();
@@ -548,6 +603,80 @@ int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(GetACP());
 #endif
+
+    // ====== 两阶段兑换：超时未核销自动退回（后台线程，每小时扫描一次） =====
+    // 找出 status='pending' 且 created_at 早于 (now - redemption_expire_hours) 的单子，
+    // 在事务内完成【退积分 + 还库存 + 置状态 expired】。
+    // 说明：
+    //   * created_at 由 get_current_time() 写入，格式 "%Y-%m-%d %H:%M"，
+    //     SQLite 对该格式的字符串比较即时间序比较，直接用 <= 阈值字符串即可；
+    //   * 单线程串行处理逐单事务，与核销接口的 UPDATE ... WHERE status='pending'
+    //     原子竞争安全（谁先改成功谁生效，后者影响 0 行）；
+    //   * 退积分先写 DB 再改内存（与 /api/mall/redeem 同序），失败即回滚不碰内存。
+    if (g_config.redemption_expire_hours > 0) {
+        std::thread([]() {
+            const int hours = g_config.redemption_expire_hours;
+            // 首轮：启动后 5 秒即扫描一次 —— 重启场景下，停机期间已过期的单子
+            // 无需再等一个完整周期才被退回。
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            while (true) {
+                try {
+                    time_t cutoff = time(nullptr) - (time_t)hours * 3600;
+                    char cutoff_s[24];
+                    struct tm* tmv = localtime(&cutoff);
+                    strftime(cutoff_s, sizeof(cutoff_s), "%Y-%m-%d %H:%M", tmv);
+
+                    json expired_list = db.query_bind(
+                        "SELECT id, student_id, item_id, cost FROM redemption_records "
+                        "WHERE status = 'pending' AND created_at <= ? AND created_at IS NOT NULL",
+                        {SqliteDb::Bind(std::string(cutoff_s))});
+
+                    for (const auto& r : expired_list) {
+                        long long rid = r.value("id", 0LL);
+                        std::string sid = r.value("student_id", "");
+                        long long item_id = r.value("item_id", 0LL);
+                        int cost = r.value("cost", 0);
+                        if (sid.empty() || cost <= 0) continue;
+
+                        SqliteDb::Transaction txn(db);
+                        if (!txn.active()) continue;
+
+                        // ① 退积分：DB 先写，成功后才改内存
+                        User u;
+                        if (find_user_by_id_copy(sid, u)) {
+                            int refund = u.points + cost;
+                            if (!update_user_points_in_db(sid, refund)) continue;   // RAII 回滚
+                            with_user_record(sid, [&](User& mu) -> bool {
+                                mu.points = refund;
+                                return true;
+                            });
+                        }
+                        // ② 还库存（stock=-1 表示不限量，跳过）
+                        json item = db.query_bind("SELECT stock FROM mall_items WHERE id = ?",
+                                                  {SqliteDb::Bind(item_id)});
+                        if (!item.empty() && item[0].value("stock", -1) >= 0) {
+                            db.execute_bind("UPDATE mall_items SET stock = stock + 1 WHERE id = ?",
+                                            {SqliteDb::Bind(item_id)});
+                        }
+                        // ③ 置状态（原子：仅 pending → expired）
+                        db.execute_bind(
+                            "UPDATE redemption_records SET status = 'expired' WHERE id = ? AND status = 'pending'",
+                            {SqliteDb::Bind(rid)});
+                        if (txn.commit()) {
+                            Logger::info("兑换单 #" + std::to_string(rid) +
+                                         " 超时未核销，已自动退回积分并返还库存");
+                        }
+                    }
+                } catch (...) {
+                    // 后台线程绝不因单轮异常退出
+                    Logger::error("兑换超时退回线程：本轮扫描发生异常，已跳过");
+                }
+                std::this_thread::sleep_for(std::chrono::hours(1));
+            }
+        }).detach();
+        Logger::info("已启动兑换超时退回线程：启动 5 秒后首轮扫描，此后每小时扫描；超过 " +
+                     std::to_string(g_config.redemption_expire_hours) + " 小时未核销的兑换单将自动退回");
+    }
 
     Logger::info("服务器开始监听 " + g_config.host + ":" + std::to_string(g_config.port));
     svr.listen(g_config.host.c_str(), g_config.port);

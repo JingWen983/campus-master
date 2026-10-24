@@ -27,5 +27,8 @@
         "enabled": false,
         "cert_path": "",
         "key_path": ""
+    },
+    "redemption": {
+        "expire_hours": 168
     }
 }

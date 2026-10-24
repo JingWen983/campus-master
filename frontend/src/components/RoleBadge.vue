@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 角色徽章 —— 替换 admin.html L579-581 的三层三元嵌套
- * roleId: 1=管理员 / 2=教师 / 3=学生 / 4=家长
+ * roleId: 1=管理员 / 2=教师 / 3=学生 / 4=家长 / 5=后勤
  */
 import { computed } from 'vue'
 import { ROLE_NAMES } from '../lib/auth'
@@ -18,6 +18,7 @@ const config = computed(() => {
     case 2: return { bg: 'bg-amber-100', text: 'text-amber-700' }
     case 3: return { bg: 'bg-emerald-100', text: 'text-emerald-700' }
     case 4: return { bg: 'bg-violet-100', text: 'text-violet-700' }
+    case 5: return { bg: 'bg-cyan-100', text: 'text-cyan-700' }
     default: return { bg: 'bg-stone-100', text: 'text-stone-700' }
   }
 })

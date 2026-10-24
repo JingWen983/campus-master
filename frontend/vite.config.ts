@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-// 多入口：5 个独立 HTML 页面（保留原 URL 结构：/ /admin.html /teacher.html ...）
+// 多入口：7 个独立 HTML 页面（保留原 URL 结构：/ /admin.html /teacher.html ... /screen.html /logistics.html）
 // GitHub Pages 部署时通过环境变量 VITE_BASE 配置子路径（如 /campus-master/）
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
           teacher: resolve(__dirname, 'teacher.html'),
           student: resolve(__dirname, 'student.html'),
           parent: resolve(__dirname, 'parent.html'),
+          screen: resolve(__dirname, 'screen.html'),
+          logistics: resolve(__dirname, 'logistics.html'),
         },
       },
     },
