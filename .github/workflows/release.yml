@@ -252,6 +252,8 @@ jobs:
 
       # ===== 9b. 更新 update.json（检查更新功能的版本清单）并提交回 main =====
       # 客户端管理员端通过 jsDelivr/raw/gh 镜像竞速拉取本文件判断是否有新版本。
+      # 安全注意：NOTES 含反引号/括号等 shell 特殊字符，绝不能用 ${{ }} 展开进
+      # run 字面量（会被 bash 当命令执行）——只经 env 传入，脚本内读 os.environ。
       - name: Update update.json manifest
         shell: bash
         env:
@@ -261,9 +263,6 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           set -e
-          TAG="${{ steps.ver.outputs.tag }}"
-          VER="${TAG#v}"
-          NOTES="${{ steps.notes_body.outputs.notes }}"
 
           # 写入新清单：version=tag 去 v 前缀；notes=本版要点；published_at=今天。
           # 写失败不阻塞发布（update.json 保持旧值，可手动更新）。
@@ -284,6 +283,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "update.json 未变化，跳过提交"
           else
-            git commit -m "chore(release): update.json → ${TAG}（检查更新清单，自动提交）"
+            git commit -m "chore(release): update.json manifest ${TAG}"
             git push origin HEAD:main
           fi
