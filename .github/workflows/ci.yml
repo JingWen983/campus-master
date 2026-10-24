@@ -80,10 +80,11 @@ jobs:
           g++ -c routes_teacher.cpp -o routes_teacher.o -std=c++17 -O2 -I.
           g++ -c routes_student.cpp -o routes_student.o -std=c++17 -O2 -I.
           g++ -c routes_parent.cpp -o routes_parent.o -std=c++17 -O2 -I.
+          g++ -c routes_cards.cpp -o routes_cards.o -std=c++17 -O2 -I.
 
       - name: Link server.exe (静态链接 MinGW 运行时)
         run: |
-          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o sqlite3.o -lws2_32 -lwsock32 -std=c++17 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
+          g++ -o server.exe main.o models.o logger.o routes_static.o routes_public.o routes_admin.o routes_teacher.o routes_student.o routes_parent.o routes_cards.o sqlite3.o -lws2_32 -lwsock32 -std=c++17 -O2 -static -static-libgcc -static-libstdc++ -lwinpthread
 
       - name: Verify build output
         shell: bash
