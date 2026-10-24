@@ -436,6 +436,8 @@ interface TeacherPointCard {
   issuer_name?: string
   bound_student_id?: string
   bound_student_name?: string
+  bound_teacher_id?: string
+  bound_teacher_name?: string
   pending_student_name?: string
   created_at: string
 }
@@ -1477,7 +1479,12 @@ onUnmounted(() => {
                 <span class="font-bold text-amber-600">{{ c.face_value }} 分</span>
                 <span v-if="c.remark" class="text-xs text-stone-400">{{ c.remark }}</span>
               </div>
-              <p class="text-xs text-stone-400 mt-1">签发人：{{ c.issuer_name || '—' }}</p>
+              <p class="text-xs text-stone-400 mt-1">
+                签发人：{{ c.issuer_name || '—' }}
+                <span v-if="c.bound_teacher_name" class="ml-2 text-cyan-600 font-medium">
+                  <i class="fa-solid fa-user-check mr-0.5"></i>负责教师：{{ c.bound_teacher_name }}
+                </span>
+              </p>
             </div>
             <div class="flex gap-2 shrink-0">
               <button @click="confirmCard(c)" class="btn-teal px-5 py-2 rounded-xl text-xs font-bold text-white">
@@ -1511,13 +1518,14 @@ onUnmounted(() => {
                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">面额</th>
                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">状态</th>
                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">绑定/兑换</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">负责教师</th>
                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">生成时间</th>
                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-200/50">
               <tr v-if="myCards.length === 0">
-                <td colspan="6" class="px-5 py-10 text-center text-stone-400 text-sm">暂无积分卡</td>
+                <td colspan="7" class="px-5 py-10 text-center text-stone-400 text-sm">暂无积分卡</td>
               </tr>
               <tr v-for="c in myCards" :key="c.id" class="table-row">
                 <td class="px-5 py-3.5 font-mono text-xs font-bold text-stone-700 whitespace-nowrap">{{ c.code }}</td>
@@ -1533,6 +1541,9 @@ onUnmounted(() => {
                 <td class="px-5 py-3.5 text-sm text-stone-600 whitespace-nowrap">
                   <span v-if="c.status === 'pending'">{{ c.pending_student_name }}（待确认）</span>
                   <span v-else>{{ c.bound_student_name || '通用卡' }}</span>
+                </td>
+                <td class="px-5 py-3.5 text-sm whitespace-nowrap" :class="c.bound_teacher_name ? 'text-cyan-700 font-medium' : 'text-stone-400'">
+                  {{ c.bound_teacher_name || '—' }}
                 </td>
                 <td class="px-5 py-3.5 text-xs text-stone-400 whitespace-nowrap">{{ c.created_at }}</td>
                 <td class="px-5 py-3.5 whitespace-nowrap">

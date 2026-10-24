@@ -70,6 +70,7 @@ static json card_to_json(const json& row, bool with_names, const std::string& st
     item["remark"] = str_or_empty(row, "remark");
     item["issuer_id"] = str_or_empty(row, "issuer_id");
     item["bound_student_id"] = str_or_empty(row, "bound_student_id");
+    item["bound_teacher_id"] = str_or_empty(row, "bound_teacher_id");
     item["pending_student_id"] = str_or_empty(row, "pending_student_id");
     item["used_by"] = str_or_empty(row, "used_by");
     item["used_at"] = str_or_empty(row, "used_at");
@@ -91,10 +92,14 @@ static json card_row_to_json(const json& row) {
                         ? row["pending_name"] : json("");
     json issuer_name = row.contains("issuer_name") && !row["issuer_name"].is_null()
                        ? row["issuer_name"] : json("");
-    return card_to_json(row, true,
-                        bound_name.is_string() ? bound_name.get<std::string>() : "",
-                        pending_name.is_string() ? pending_name.get<std::string>() : "",
-                        issuer_name.is_string() ? issuer_name.get<std::string>() : "");
+    json item = card_to_json(row, true,
+                    bound_name.is_string() ? bound_name.get<std::string>() : "",
+                    pending_name.is_string() ? pending_name.get<std::string>() : "",
+                    issuer_name.is_string() ? issuer_name.get<std::string>() : "");
+    // 负责教师姓名（可空）
+    item["bound_teacher_name"] = row.contains("bound_teacher_name") && !row["bound_teacher_name"].is_null()
+                                 ? row["bound_teacher_name"] : json("");
+    return item;
 }
 
 void register_card_routes(httplib::Server& svr) {
@@ -153,6 +158,23 @@ void register_card_routes(httplib::Server& svr) {
                 }
             }
 
+            // 负责教师：仅管理员可指定（教师本人签发即自己负责，无需此字段）。
+            // 指定后，该批通用卡的确认/驳回由该教师负责（授权规则见 pending/confirm/reject）。
+            std::string bound_teacher_id = body.value("bound_teacher_id", "");
+            if (!bound_teacher_id.empty()) {
+                if (!is_admin) {
+                    res.status = 403;
+                    res.set_content(json{{"code", 403}, {"msg", "仅管理员可指定负责教师"}}.dump(), "application/json");
+                    return;
+                }
+                User tch;
+                if (!find_user_by_id_copy(bound_teacher_id, tch) || tch.role_id != 2) {
+                    res.status = 400;
+                    res.set_content(json{{"code", 400}, {"msg", "负责教师不存在或不是教师角色"}}.dump(), "application/json");
+                    return;
+                }
+            }
+
             // 批次号：PC-yyyyMMdd-HHMMSS
             time_t now = time(nullptr);
             struct tm* tmv = localtime(&now);
@@ -176,12 +198,13 @@ void register_card_routes(httplib::Server& svr) {
                     break;
                 }
                 bool ok = db.execute_bind(
-                    "INSERT INTO point_cards (code, face_value, status, batch_no, remark, issuer_id, bound_student_id, created_at) "
-                    "VALUES (?, ?, 'unused', ?, ?, ?, ?, ?)",
+                    "INSERT INTO point_cards (code, face_value, status, batch_no, remark, issuer_id, bound_student_id, bound_teacher_id, created_at) "
+                    "VALUES (?, ?, 'unused', ?, ?, ?, ?, ?, ?)",
                     {SqliteDb::Bind(code), SqliteDb::Bind((long long)face_value),
                      SqliteDb::Bind(batch_no), SqliteDb::Bind(remark),
                      SqliteDb::Bind(user_id),
                      bound_student_id.empty() ? SqliteDb::Bind::null() : SqliteDb::Bind(bound_student_id),
+                     bound_teacher_id.empty() ? SqliteDb::Bind::null() : SqliteDb::Bind(bound_teacher_id),
                      SqliteDb::Bind(get_current_time())});
                 if (!ok) {
                     Logger::error("积分卡写入失败：code=" + code);
@@ -195,6 +218,7 @@ void register_card_routes(httplib::Server& svr) {
                             {"remark", remark},
                             {"issuer_id", user_id},
                             {"bound_student_id", bound_student_id},
+                            {"bound_teacher_id", bound_teacher_id},
                             {"pending_student_id", ""},
                             {"used_by", ""}, {"used_at", ""}, {"confirmed_by", ""},
                             {"created_at", get_current_time()}};
@@ -235,7 +259,9 @@ void register_card_routes(httplib::Server& svr) {
         std::string where = " WHERE 1=1";
         std::vector<SqliteDb::Bind> params;
         if (!is_admin) {
-            where += " AND c.issuer_id = ?";
+            // 教师可见：本人签发 + 被指定为负责教师的卡
+            where += " AND (c.issuer_id = ? OR c.bound_teacher_id = ?)";
+            params.push_back(SqliteDb::Bind(user_id));
             params.push_back(SqliteDb::Bind(user_id));
         }
         if (!status.empty()) {
@@ -253,10 +279,11 @@ void register_card_routes(httplib::Server& svr) {
 
         json rows = db.query_bind(
             "SELECT c.id, c.code, c.face_value, c.status, c.batch_no, c.remark, c.issuer_id, "
-            "c.bound_student_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
-            "bu.name AS bound_name, pu.name AS pending_name, iu.name AS issuer_name "
+            "c.bound_student_id, c.bound_teacher_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
+            "bu.name AS bound_name, tu.name AS bound_teacher_name, pu.name AS pending_name, iu.name AS issuer_name "
             "FROM point_cards c "
             "LEFT JOIN users bu ON c.bound_student_id = bu.id "
+            "LEFT JOIN users tu ON c.bound_teacher_id = tu.id "
             "LEFT JOIN users pu ON c.pending_student_id = pu.id "
             "LEFT JOIN users iu ON c.issuer_id = iu.id " +
                 where + " ORDER BY c.id DESC LIMIT ? OFFSET ?",
@@ -321,7 +348,8 @@ void register_card_routes(httplib::Server& svr) {
     });
 
     // 4. 待确认列表（通用卡 pending）。
-    //    教师可见：① 本人签发；② 管理员签发、且待确认学生在该教师任课班级。
+    //    教师可见：① 本人签发；② 被指定为负责教师（bound_teacher_id）；
+    //             ③ 管理员签发（未指定负责教师）、且待确认学生在该教师任课班级。
     //    管理员可见：全部。
     svr.Get("/api/point-cards/pending", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(req, res);
@@ -331,37 +359,37 @@ void register_card_routes(httplib::Server& svr) {
         std::string user_id = verify_session(session_id);
         bool is_admin = is_admin_session(user_id);
 
-        // 教师专属子查询：该教师任课班级的学生 id 集合
-        // （teacher_classes JOIN classes JOIN users，与 models.cpp 归属判定同链路）
         json rows;
         if (is_admin) {
             rows = db.query(
                 "SELECT c.id, c.code, c.face_value, c.status, c.batch_no, c.remark, c.issuer_id, "
-                "c.bound_student_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
-                "bu.name AS bound_name, pu.name AS pending_name, iu.name AS issuer_name "
+                "c.bound_student_id, c.bound_teacher_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
+                "bu.name AS bound_name, tu.name AS bound_teacher_name, pu.name AS pending_name, iu.name AS issuer_name "
                 "FROM point_cards c "
                 "LEFT JOIN users bu ON c.bound_student_id = bu.id "
+                "LEFT JOIN users tu ON c.bound_teacher_id = tu.id "
                 "LEFT JOIN users pu ON c.pending_student_id = pu.id "
                 "LEFT JOIN users iu ON c.issuer_id = iu.id "
                 "WHERE c.status = 'pending' ORDER BY c.id DESC LIMIT 200");
         } else {
             rows = db.query_bind(
                 "SELECT c.id, c.code, c.face_value, c.status, c.batch_no, c.remark, c.issuer_id, "
-                "c.bound_student_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
-                "bu.name AS bound_name, pu.name AS pending_name, iu.name AS issuer_name "
+                "c.bound_student_id, c.bound_teacher_id, c.pending_student_id, c.used_by, c.used_at, c.confirmed_by, c.created_at, "
+                "bu.name AS bound_name, tu.name AS bound_teacher_name, pu.name AS pending_name, iu.name AS issuer_name "
                 "FROM point_cards c "
                 "LEFT JOIN users bu ON c.bound_student_id = bu.id "
+                "LEFT JOIN users tu ON c.bound_teacher_id = tu.id "
                 "LEFT JOIN users pu ON c.pending_student_id = pu.id "
                 "LEFT JOIN users iu ON c.issuer_id = iu.id "
                 "WHERE c.status = 'pending' AND ("
-                "  c.issuer_id = ? OR ("
-                "    EXISTS (SELECT 1 FROM roles r WHERE r.id = 1 AND c.issuer_id IN (SELECT id FROM users WHERE role_id = 1))"
+                "  c.issuer_id = ? OR c.bound_teacher_id = ? OR ("
+                "    c.issuer_id IN (SELECT id FROM users WHERE role_id = 1) AND c.bound_teacher_id IS NULL"
                 "    AND EXISTS (SELECT 1 FROM teacher_classes tc JOIN classes cl ON tc.class_id = cl.id "
                 "                WHERE tc.teacher_id = ? AND cl.name = "
                 "                  (SELECT className FROM users WHERE id = c.pending_student_id))"
                 "  )"
                 ") ORDER BY c.id DESC LIMIT 200",
-                {SqliteDb::Bind(user_id), SqliteDb::Bind(user_id)});
+                {SqliteDb::Bind(user_id), SqliteDb::Bind(user_id), SqliteDb::Bind(user_id)});
         }
 
         json items = json::array();
@@ -391,7 +419,7 @@ void register_card_routes(httplib::Server& svr) {
 
             // 取卡（锁前读；状态流转靠下方条件 UPDATE 保证原子）
             json cards = db.query_bind(
-                "SELECT id, code, face_value, status, issuer_id, pending_student_id FROM point_cards WHERE id = ?",
+                "SELECT id, code, face_value, status, issuer_id, bound_teacher_id, pending_student_id FROM point_cards WHERE id = ?",
                 {SqliteDb::Bind(card_id)});
             if (cards.empty()) {
                 res.status = 404;
@@ -401,6 +429,7 @@ void register_card_routes(httplib::Server& svr) {
             const auto& card = cards[0];
             std::string status = card.value("status", "");
             std::string issuer = str_or_empty(card, "issuer_id");
+            std::string bound_teacher = str_or_empty(card, "bound_teacher_id");
             std::string student_id = str_or_empty(card, "pending_student_id");
             int face_value = card.value("face_value", 0);
 
@@ -417,27 +446,29 @@ void register_card_routes(httplib::Server& svr) {
                 return;
             }
 
-            // 授权：管理员任意；教师须「本人签发且学生任课」或「管理员签发且学生任课」
+            // 授权：管理员任意。教师须满足其一：
+            //   ① 被指定为该卡负责教师（bound_teacher_id）；
+            //   ② 本人签发；
+            //   ③ 管理员签发（未指定负责教师）且待确认学生在其任课班级。
             if (!is_admin) {
-                bool owns_student = teacher_owns_student(user_id, student_id);
-                bool mine = (issuer == user_id);
-                bool admin_issued = false;
-                json ir = db.query_bind("SELECT role_id FROM users WHERE id = ?",
-                                        {SqliteDb::Bind(issuer)});
-                if (!ir.empty()) {
-                    admin_issued = ir[0].value("role_id", 0) == 1;
+                if (bound_teacher != user_id && issuer != user_id) {
+                    bool admin_issued = false;
+                    json ir = db.query_bind("SELECT role_id FROM users WHERE id = ?",
+                                            {SqliteDb::Bind(issuer)});
+                    if (!ir.empty()) {
+                        admin_issued = ir[0].value("role_id", 0) == 1;
+                    }
+                    bool fallback = admin_issued && bound_teacher.empty()
+                                    && teacher_owns_student(user_id, student_id);
+                    if (!fallback) {
+                        res.status = 403;
+                        res.set_content(json{{"code", 403},
+                            {"msg", "无权确认该卡（仅负责教师、签发教师或学生任课教师可确认）"}}.dump(),
+                            "application/json");
+                        return;
+                    }
                 }
-                if (owns_student && !(mine || admin_issued)) {
-                    res.status = 403;
-                    res.set_content(json{{"code", 403}, {"msg", "该卡由其他教师签发，且学生不在可代确认范围"}}.dump(), "application/json");
-                    return;
-                }
-                if (!mine && !(admin_issued && owns_student)) {
-                    res.status = 403;
-                    res.set_content(json{{"code", 403}, {"msg", "无权确认该卡（仅签发教师或学生任课教师可确认管理员签发的卡）"}}.dump(), "application/json");
-                    return;
-                }
-                // 本人签发但学生已不在任课班级：仍允许（签发人对自己发的卡负责）
+                // 本人签发/被指定为负责教师：即使学生已不在任课班级也允许（对自己负责的卡负责）
             }
 
             // 事务：条件置 used + 加分 + 积分记录
@@ -534,7 +565,7 @@ void register_card_routes(httplib::Server& svr) {
             auto body = json::parse(req.body);
             long long card_id = body.value("id", 0LL);
             json cards = db.query_bind(
-                "SELECT issuer_id, status, pending_student_id FROM point_cards WHERE id = ?",
+                "SELECT issuer_id, bound_teacher_id, status, pending_student_id FROM point_cards WHERE id = ?",
                 {SqliteDb::Bind(card_id)});
             if (cards.empty()) {
                 res.status = 404;
@@ -542,6 +573,7 @@ void register_card_routes(httplib::Server& svr) {
                 return;
             }
             std::string issuer = str_or_empty(cards[0], "issuer_id");
+            std::string bound_teacher = str_or_empty(cards[0], "bound_teacher_id");
             std::string status = cards[0].value("status", "");
             std::string pending_student = str_or_empty(cards[0], "pending_student_id");
 
@@ -553,18 +585,18 @@ void register_card_routes(httplib::Server& svr) {
                 return;
             }
             // 授权与确认（/confirm）保持同一规则：
-            //   管理员任意；教师须「本人签发」或「管理员签发且待确认学生在其任课班级」。
+            //   管理员任意；教师须「负责教师」「本人签发」或「管理员签发（未指定负责教师）且学生在其任课班级」。
             // （与待确认列表的可见性一致：能看到的卡就能驳回，避免「能确认不能驳回」的规则裂缝。）
-            if (!is_admin && issuer != user_id) {
+            if (!is_admin && issuer != user_id && bound_teacher != user_id) {
                 bool admin_issued = false;
                 json ir = db.query_bind("SELECT role_id FROM users WHERE id = ?",
                                         {SqliteDb::Bind(issuer)});
                 if (!ir.empty()) admin_issued = ir[0].value("role_id", 0) == 1;
-                if (!(admin_issued && !pending_student.empty()
+                if (!(admin_issued && bound_teacher.empty() && !pending_student.empty()
                       && teacher_owns_student(user_id, pending_student))) {
                     res.status = 403;
                     res.set_content(json{{"code", 403},
-                        {"msg", "仅签发教师、学生任课教师或管理员可驳回"}}.dump(), "application/json");
+                        {"msg", "仅负责教师、签发教师、学生任课教师或管理员可驳回"}}.dump(), "application/json");
                     return;
                 }
             }

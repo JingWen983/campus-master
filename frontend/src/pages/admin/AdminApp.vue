@@ -1111,6 +1111,8 @@ interface PointCard {
   issuer_name?: string
   bound_student_id?: string
   bound_student_name?: string
+  bound_teacher_id?: string
+  bound_teacher_name?: string
   pending_student_name?: string
   created_at: string
 }
@@ -1136,13 +1138,16 @@ const cardStatusFilter = ref('')
 const cardBatchFilter = ref('')
 const cardBatches = ref<CardBatch[]>([])
 const showCardGenDialog = ref(false)
-const cardGenForm = ref({ count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' })
+const cardGenForm = ref({ count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '', bound_teacher_id: '' })
 const cardGenLoading = ref(false)
 const showCardPrint = ref(false)
 const printCards = ref<{ code: string; face_value: number; bound_student_name?: string }[]>([])
 const printBatchNo = ref('')
 
 const cardTotalPages = computed(() => Math.ceil(cardTotal.value / cardPageSize) || 1)
+
+/** 教师列表（生成弹窗"负责教师"下拉用；users 在 onMounted 已全量加载） */
+const teachersList = computed(() => users.value.filter(u => Number(u.role_id) === 2))
 
 async function loadCards() {
   try {
@@ -1175,7 +1180,7 @@ function onCardFilterChange() {
 }
 
 function openCardGenDialog() {
-  cardGenForm.value = { count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' }
+  cardGenForm.value = { count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '', bound_teacher_id: '' }
   showCardGenDialog.value = true
 }
 
@@ -1202,6 +1207,7 @@ async function generateCards() {
         face_value: face,
         remark: cardGenForm.value.remark || undefined,
         bound_student_id: cardGenForm.value.bound_student_id || undefined,
+        bound_teacher_id: cardGenForm.value.bound_teacher_id || undefined,
       }
     )
     if (res.code === 200 && res.data) {
@@ -2185,6 +2191,7 @@ onMounted(async () => {
                 <th class="px-6 py-4">面额</th>
                 <th class="px-6 py-4">状态</th>
                 <th class="px-6 py-4">绑定/兑换学生</th>
+                <th class="px-6 py-4">负责教师</th>
                 <th class="px-6 py-4">签发人</th>
                 <th class="px-6 py-4">生成时间</th>
                 <th class="px-6 py-4">操作</th>
@@ -2192,7 +2199,7 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr v-if="cards.length === 0">
-                <td colspan="7" class="px-6 py-12 text-center text-stone-400 text-sm">暂无积分卡</td>
+                <td colspan="8" class="px-6 py-12 text-center text-stone-400 text-sm">暂无积分卡</td>
               </tr>
               <tr v-for="c in cards" :key="c.id" class="border-b border-stone-50 hover:bg-stone-50/60">
                 <td class="px-6 py-4 font-mono text-xs font-bold text-stone-700 whitespace-nowrap">{{ c.code }}</td>
@@ -2209,6 +2216,7 @@ onMounted(async () => {
                   <span v-if="c.status === 'pending'">{{ c.pending_student_name }}（待确认）</span>
                   <span v-else>{{ c.bound_student_name || '通用卡' }}</span>
                 </td>
+                <td class="px-6 py-4 text-stone-600 whitespace-nowrap">{{ c.bound_teacher_name || '—' }}</td>
                 <td class="px-6 py-4 text-stone-600">{{ c.issuer_name || '—' }}</td>
                 <td class="px-6 py-4 text-xs text-stone-400 whitespace-nowrap">{{ c.created_at }}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -2887,6 +2895,7 @@ onMounted(async () => {
           <p class="font-medium text-amber-700 mb-1"><i class="fa-solid fa-circle-info mr-1"></i>说明</p>
           <p>· 不绑定学生 = <b>通用卡</b>：任何学生提交后需老师确认到账</p>
           <p>· 绑定学生 = <b>定向卡</b>：仅该学生可兑换，即时到账</p>
+          <p>· 指定负责教师后，通用卡的确认/驳回由该老师负责</p>
         </div>
         <div>
           <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">生成数量（1-200）</label>
@@ -2907,6 +2916,13 @@ onMounted(async () => {
           <select v-model="cardGenForm.bound_student_id" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
             <option value="">不绑定（通用卡）</option>
             <option v-for="s in studentsList" :key="s.id" :value="s.id">{{ s.name }}（{{ s.className }}）</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">负责教师（通用卡由其确认；可选）</label>
+          <select v-model="cardGenForm.bound_teacher_id" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
+            <option value="">不指定（由签发人/学生任课教师确认）</option>
+            <option v-for="t in teachersList" :key="t.id" :value="t.id">{{ t.name }}（{{ t.username }}）</option>
           </select>
         </div>
         <div>

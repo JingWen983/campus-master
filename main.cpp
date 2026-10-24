@@ -85,7 +85,6 @@ static void migrate_redemption_records() {
     if (!db.isOpen()) return;
     json has = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='redemption_records'");
     if (has.empty()) return;   // 表尚不存在（全新库由 init_sql 创建，无需迁移）
-
     auto has_col = [&](const char* col) {
         json info = db.query("PRAGMA table_info(redemption_records)");
         for (const auto& c : info) {
@@ -113,6 +112,25 @@ static void migrate_redemption_records() {
     db.execute("UPDATE redemption_records SET status = 'redeemed' WHERE status = 'pending'");
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_redemption_code ON redemption_records(code) WHERE code IS NOT NULL");
     Logger::info("迁移完成：redemption_records 已支持两阶段兑换（存量记录标记为已兑换）");
+}
+
+// 积分卡表兼容迁移：为旧 point_cards 补 bound_teacher_id 列（不删库）。
+// 存量卡该列为 NULL = 未指定负责教师，走旧确认规则，行为不变。
+static void migrate_point_cards_bound_teacher() {
+    if (!db.isOpen()) return;
+    json has = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='point_cards'");
+    if (has.empty()) return;   // 全新库由 init_sql 直接建新结构
+
+    json info = db.query("PRAGMA table_info(point_cards)");
+    for (const auto& c : info) {
+        if (c.value("name", "") == "bound_teacher_id") return;   // 已有列
+    }
+    Logger::warning("检测到 point_cards 旧 schema，补列 bound_teacher_id（不删库）");
+    if (db.execute("ALTER TABLE point_cards ADD COLUMN bound_teacher_id TEXT")) {
+        Logger::info("迁移完成：point_cards.bound_teacher_id 已添加，存量卡默认 NULL（未指定）");
+    } else {
+        Logger::error("迁移失败：point_cards.bound_teacher_id");
+    }
 }
 
 // 首启（users 表为空）创建 4 个种子账号：
@@ -415,6 +433,9 @@ int main() {
                 remark TEXT,
                 issuer_id TEXT NOT NULL,
                 bound_student_id TEXT,
+                -- 负责教师：管理员生成时可指定由哪位教师负责本批卡（确认/驳回）。
+                -- NULL = 未指定（回退到旧规则：签发人本人 + 学生任课教师）。
+                bound_teacher_id TEXT,
                 pending_student_id TEXT,
                 used_by TEXT,
                 used_at DATETIME,
@@ -424,6 +445,7 @@ int main() {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (issuer_id) REFERENCES users(id),
                 FOREIGN KEY (bound_student_id) REFERENCES users(id),
+                FOREIGN KEY (bound_teacher_id) REFERENCES users(id),
                 FOREIGN KEY (pending_student_id) REFERENCES users(id),
                 FOREIGN KEY (used_by) REFERENCES users(id)
             );
@@ -517,6 +539,9 @@ int main() {
 
             // 两阶段兑换：redemption_records 旧表补列（不删库）
             migrate_redemption_records();
+
+            // 积分卡：旧表补 bound_teacher_id 列（不删库）
+            migrate_point_cards_bound_teacher();
 
             // 安全修复 V18（B2）：首启（users 表为空）生成随机强口令种子账号
             seed_default_users_if_empty();
