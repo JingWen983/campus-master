@@ -30,6 +30,7 @@ export const ADMIN_NAV: NavItem[] = [
   { key: 'permissions', label: '权限管理', icon: 'fa-solid fa-lock' },
   { key: 'system', label: '系统配置', icon: 'fa-solid fa-gear' },
   { key: 'mall', label: '商城管理', icon: 'fa-solid fa-shopping-cart' },
+  { key: 'point-cards', label: '积分卡', icon: 'fa-solid fa-ticket' },
 ]
 
 /** 教师导航（teacher.html L293-340） */
@@ -41,12 +42,14 @@ export const TEACHER_NAV: NavItem[] = [
   { key: 'statistics', label: '数据统计', icon: 'fa-solid fa-chart-column' },
   { key: 'parent-messages', label: '家长留言', icon: 'fa-solid fa-comment-dots', badge: 0 },
   { key: 'redemptions', label: '兑换记录', icon: 'fa-solid fa-receipt' },
+  { key: 'point-cards', label: '积分卡', icon: 'fa-solid fa-ticket', badge: 0 },
 ]
 
 /** 学生导航（student.html L347-372） */
 export const STUDENT_NAV: NavItem[] = [
   { key: 'home', label: '能量大厅', icon: 'fa-solid fa-bolt' },
   { key: 'mall', label: '兑换商城', icon: 'fa-solid fa-store' },
+  { key: 'cards', label: '积分卡', icon: 'fa-solid fa-ticket' },
   { key: 'evaluation', label: '个人评价', icon: 'fa-solid fa-star' },
   { key: 'redemptions', label: '兑换记录', icon: 'fa-solid fa-receipt' },
   { key: 'rank', label: '风采榜', icon: 'fa-solid fa-ranking-star' },

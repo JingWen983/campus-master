@@ -24,4 +24,7 @@ void register_student_routes(httplib::Server& svr);
 // 家长路由（/api/parent/*）
 void register_parent_routes(httplib::Server& svr);
 
+// 积分充值卡路由（/api/point-cards/*, /api/student/point-cards/*）
+void register_card_routes(httplib::Server& svr);
+
 #endif

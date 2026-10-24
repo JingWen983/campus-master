@@ -118,3 +118,29 @@ body {
   overflow-y: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
+
+/* ===== 积分卡打印（CardPrintModal）：只打印 .card-print-root ===== */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .card-print-root,
+  .card-print-root * {
+    visibility: visible;
+  }
+  .card-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-height: none !important;
+    overflow: visible !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+  .ticket-card {
+    break-inside: avoid;
+    border: 1.5px dashed #a8a29e;
+    box-shadow: none;
+  }
+}

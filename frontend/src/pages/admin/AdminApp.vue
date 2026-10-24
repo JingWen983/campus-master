@@ -28,6 +28,8 @@ import EmptyState from '../../components/EmptyState.vue'
 import Pagination from '../../components/Pagination.vue'
 import StatCard from '../../components/StatCard.vue'
 import RoleBadge from '../../components/RoleBadge.vue'
+import CardPrintModal from '../../components/CardPrintModal.vue'
+import { exportCardsXlsx } from '../../lib/cardExport'
 
 // ===== Types =====
 interface User {
@@ -1097,6 +1099,223 @@ function changeMallPage(page: number) {
   currentMallPage.value = page
 }
 
+// ===== Point cards（积分充值卡） =====
+interface PointCard {
+  id: number | string
+  code: string
+  face_value: number
+  status: string
+  status_text: string
+  batch_no: string
+  remark?: string
+  issuer_name?: string
+  bound_student_id?: string
+  bound_student_name?: string
+  pending_student_name?: string
+  created_at: string
+}
+
+interface CardBatch {
+  batch_no: string
+  face_value: number
+  remark?: string
+  issuer_name?: string
+  created_at: string
+  total: number
+  unused_cnt: number
+  pending_cnt: number
+  used_cnt: number
+  void_cnt: number
+}
+
+const cards = ref<PointCard[]>([])
+const cardTotal = ref(0)
+const cardPage = ref(1)
+const cardPageSize = 10
+const cardStatusFilter = ref('')
+const cardBatchFilter = ref('')
+const cardBatches = ref<CardBatch[]>([])
+const showCardGenDialog = ref(false)
+const cardGenForm = ref({ count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' })
+const cardGenLoading = ref(false)
+const showCardPrint = ref(false)
+const printCards = ref<{ code: string; face_value: number; bound_student_name?: string }[]>([])
+const printBatchNo = ref('')
+
+const cardTotalPages = computed(() => Math.ceil(cardTotal.value / cardPageSize) || 1)
+
+async function loadCards() {
+  try {
+    const params = new URLSearchParams({ page: String(cardPage.value), page_size: String(cardPageSize) })
+    if (cardStatusFilter.value) params.set('status', cardStatusFilter.value)
+    if (cardBatchFilter.value) params.set('batch_no', cardBatchFilter.value)
+    const res = await api.get<{ items: PointCard[]; total: number }>(`/api/point-cards?${params}`)
+    if (res.code === 200 && res.data) {
+      cards.value = res.data.items
+      cardTotal.value = res.data.total
+    }
+  } catch { /* api 层已提示 */ }
+}
+
+async function loadCardBatches() {
+  try {
+    const res = await api.get<CardBatch[]>('/api/point-cards/batches')
+    if (res.code === 200 && res.data) cardBatches.value = res.data
+  } catch { /* api 层已提示 */ }
+}
+
+function changeCardPage(page: number) {
+  cardPage.value = page
+  loadCards()
+}
+
+function onCardFilterChange() {
+  cardPage.value = 1
+  loadCards()
+}
+
+function openCardGenDialog() {
+  cardGenForm.value = { count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' }
+  showCardGenDialog.value = true
+}
+
+async function generateCards() {
+  // 自定义面额优先（合法时）
+  const custom = parseInt(cardGenForm.value.customFace, 10)
+  const face = cardGenForm.value.customFace && custom >= 1 && custom <= 100000
+    ? custom
+    : cardGenForm.value.face_value
+  if (!(cardGenForm.value.count >= 1 && cardGenForm.value.count <= 200)) {
+    toast.warning('生成数量须在 1-200 之间')
+    return
+  }
+  if (!(face >= 1 && face <= 100000)) {
+    toast.warning('面额须在 1-100000 之间')
+    return
+  }
+  cardGenLoading.value = true
+  try {
+    const res = await api.post<{ batch_no: string; count: number; cards: PointCard[] }>(
+      '/api/point-cards/generate',
+      {
+        count: cardGenForm.value.count,
+        face_value: face,
+        remark: cardGenForm.value.remark || undefined,
+        bound_student_id: cardGenForm.value.bound_student_id || undefined,
+      }
+    )
+    if (res.code === 200 && res.data) {
+      toast.success(`成功生成 ${res.data.count} 张积分卡（批次 ${res.data.batch_no}）`)
+      showCardGenDialog.value = false
+      // 直接打开打印预览
+      printCards.value = res.data.cards.map(c => ({
+        code: c.code,
+        face_value: c.face_value,
+        bound_student_name: c.bound_student_name,
+      }))
+      printBatchNo.value = res.data.batch_no
+      showCardPrint.value = true
+      await Promise.all([loadCards(), loadCardBatches()])
+    } else {
+      toast.error(res.msg || '生成失败')
+    }
+  } catch { /* api 层已提示 */ } finally {
+    cardGenLoading.value = false
+  }
+}
+
+function printBatch(batch: CardBatch) {
+  // 拉取该批次全部未使用卡（每页 200，最多 10 页）
+  loadBatchCardsForPrint(batch.batch_no)
+}
+
+async function loadBatchCardsForPrint(batchNo: string) {
+  try {
+    const all: PointCard[] = []
+    for (let p = 1; p <= 10; p++) {
+      const res = await api.get<{ items: PointCard[]; total: number }>(
+        `/api/point-cards?batch_no=${encodeURIComponent(batchNo)}&status=unused&page=${p}&page_size=200`)
+      if (res.code === 200 && res.data) {
+        all.push(...res.data.items)
+        if (all.length >= res.data.total || res.data.items.length < 200) break
+      } else break
+    }
+    if (all.length === 0) {
+      toast.info('该批次没有未使用的卡可打印')
+      return
+    }
+    printCards.value = all.map(c => ({ code: c.code, face_value: c.face_value }))
+    printBatchNo.value = batchNo
+    showCardPrint.value = true
+  } catch { /* api 层已提示 */ }
+}
+
+async function exportCards() {
+  try {
+    const all: PointCard[] = []
+    for (let p = 1; p <= 10; p++) {
+      const params = new URLSearchParams({ page: String(p), page_size: '200' })
+      if (cardStatusFilter.value) params.set('status', cardStatusFilter.value)
+      if (cardBatchFilter.value) params.set('batch_no', cardBatchFilter.value)
+      const res = await api.get<{ items: PointCard[]; total: number }>(`/api/point-cards?${params}`)
+      if (res.code === 200 && res.data) {
+        all.push(...res.data.items)
+        if (all.length >= res.data.total || res.data.items.length < 200) break
+      } else break
+    }
+    if (all.length === 0) {
+      toast.info('当前筛选条件下没有积分卡')
+      return
+    }
+    exportCardsXlsx(all.map(c => ({
+      code: c.code,
+      face_value: c.face_value,
+      status: c.status,
+      status_text: c.status_text,
+      batch_no: c.batch_no,
+      bound_student_name: c.bound_student_name,
+      issuer_name: c.issuer_name,
+      created_at: c.created_at,
+      remark: c.remark,
+    })), `积分卡-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    toast.success(`已导出 ${all.length} 张`)
+  } catch { /* api 层已提示 */ }
+}
+
+async function voidCard(card: PointCard) {
+  const ok = await confirmDialog({
+    message: `确定作废卡 ${card.code}（${card.face_value} 分）吗？作废后不可恢复`,
+    variant: 'danger',
+    confirmText: '作废',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/void', { id: card.id })
+  if (res.code === 200) {
+    toast.success('已作废')
+    await Promise.all([loadCards(), loadCardBatches()])
+  } else {
+    toast.error(res.msg || '作废失败')
+  }
+}
+
+async function reactivateCard(card: PointCard, unbind: boolean) {
+  const ok = await confirmDialog({
+    message: unbind
+      ? `重新激活 ${card.code} 并解除绑定（转为通用卡）？`
+      : `重新激活 ${card.code}（保留原绑定）？`,
+    variant: 'primary',
+    confirmText: '激活',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/reactivate', { id: card.id, unbind })
+  if (res.code === 200) {
+    toast.success(res.msg || '已重新激活')
+    await Promise.all([loadCards(), loadCardBatches()])
+  } else {
+    toast.error(res.msg || '激活失败')
+  }
+}
+
 // ===== System config =====
 function saveSystemConfig() {
   toast.success('系统配置保存成功！')
@@ -1218,6 +1437,9 @@ function switchTab(tab: string) {
   } else if (tab === 'mall') {
     loadProducts()
     loadExchangeRecords()
+  } else if (tab === 'point-cards') {
+    loadCards()
+    loadCardBatches()
   }
 }
 
@@ -1868,6 +2090,157 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- ====== Tab 8: 积分卡 ====== -->
+    <div v-show="currentTab === 'point-cards'">
+      <div class="flex flex-wrap justify-between items-end gap-4 mb-7 enter-up">
+        <div>
+          <p class="text-xs font-bold tracking-[0.25em] text-rose-500 uppercase mb-2">Point Cards</p>
+          <h2 class="font-display text-4xl md:text-5xl font-black text-stone-900 title-deco">积分卡</h2>
+          <p class="text-stone-500 mt-4 text-sm">批量生成积分充值卡，打印发放给学生</p>
+        </div>
+        <div class="flex gap-3">
+          <button type="button" class="btn-ghost px-5 py-2.5 rounded-2xl text-sm font-medium" @click="exportCards">
+            <i class="fa-solid fa-file-excel mr-2 text-emerald-600"></i>导出 Excel
+          </button>
+          <button type="button" class="btn-ruby px-5 py-2.5 rounded-2xl text-sm font-medium" @click="openCardGenDialog">
+            <i class="fa-solid fa-plus mr-2"></i>生成积分卡
+          </button>
+        </div>
+      </div>
+
+      <!-- 批次汇总 -->
+      <div class="glass-card rounded-3xl p-6 mb-6 enter-up enter-delay-1">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+            <i class="fa-solid fa-layer-group"></i>
+          </div>
+          <h3 class="font-display text-xl font-bold text-stone-800">生成批次</h3>
+        </div>
+        <EmptyState v-if="cardBatches.length === 0" icon="fa-ticket" text="还没有生成过积分卡" variant="inline" />
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-stone-400 uppercase tracking-wider border-b border-stone-100">
+                <th class="py-3 pr-4">批次号</th>
+                <th class="py-3 pr-4">面额</th>
+                <th class="py-3 pr-4">总数</th>
+                <th class="py-3 pr-4">未使用</th>
+                <th class="py-3 pr-4">待确认</th>
+                <th class="py-3 pr-4">已使用</th>
+                <th class="py-3 pr-4">已作废</th>
+                <th class="py-3 pr-4">签发人</th>
+                <th class="py-3 pr-4">生成时间</th>
+                <th class="py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="b in cardBatches" :key="b.batch_no + b.face_value" class="border-b border-stone-50 hover:bg-stone-50/60">
+                <td class="py-3 pr-4 font-mono text-xs font-bold text-stone-700">{{ b.batch_no }}</td>
+                <td class="py-3 pr-4 font-bold text-amber-600">{{ b.face_value }} 分</td>
+                <td class="py-3 pr-4 font-bold">{{ b.total }}</td>
+                <td class="py-3 pr-4 text-stone-500">{{ b.unused_cnt }}</td>
+                <td class="py-3 pr-4 text-amber-600 font-medium">{{ b.pending_cnt }}</td>
+                <td class="py-3 pr-4 text-emerald-600">{{ b.used_cnt }}</td>
+                <td class="py-3 pr-4 text-stone-400">{{ b.void_cnt }}</td>
+                <td class="py-3 pr-4 text-stone-600">{{ b.issuer_name || '—' }}</td>
+                <td class="py-3 pr-4 text-xs text-stone-400">{{ b.created_at }}</td>
+                <td class="py-3">
+                  <button type="button" class="text-sky-600 hover:text-sky-800 font-medium text-xs" @click="printBatch(b)">
+                    <i class="fa-solid fa-print mr-1"></i>打印未用卡
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 卡列表 -->
+      <div class="glass-card rounded-3xl overflow-hidden enter-up enter-delay-2">
+        <div class="p-6 border-b border-stone-100 flex flex-wrap items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+            <i class="fa-solid fa-ticket"></i>
+          </div>
+          <h3 class="font-display text-xl font-bold text-stone-800 mr-auto">卡片明细</h3>
+          <select v-model="cardStatusFilter" class="field-input px-3 py-2 rounded-xl text-sm w-32" @change="onCardFilterChange">
+            <option value="">全部状态</option>
+            <option value="unused">未使用</option>
+            <option value="pending">待确认</option>
+            <option value="used">已使用</option>
+            <option value="void">已作废</option>
+          </select>
+          <select v-model="cardBatchFilter" class="field-input px-3 py-2 rounded-xl text-sm w-44">
+            <option value="">全部批次</option>
+            <option v-for="b in cardBatches" :key="b.batch_no + b.face_value" :value="b.batch_no">{{ b.batch_no }}</option>
+          </select>
+          <button type="button" class="btn-ghost px-4 py-2 rounded-xl text-sm" @click="onCardFilterChange">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-stone-400 uppercase tracking-wider border-b border-stone-100">
+                <th class="px-6 py-4">卡号</th>
+                <th class="px-6 py-4">面额</th>
+                <th class="px-6 py-4">状态</th>
+                <th class="px-6 py-4">绑定/兑换学生</th>
+                <th class="px-6 py-4">签发人</th>
+                <th class="px-6 py-4">生成时间</th>
+                <th class="px-6 py-4">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="cards.length === 0">
+                <td colspan="7" class="px-6 py-12 text-center text-stone-400 text-sm">暂无积分卡</td>
+              </tr>
+              <tr v-for="c in cards" :key="c.id" class="border-b border-stone-50 hover:bg-stone-50/60">
+                <td class="px-6 py-4 font-mono text-xs font-bold text-stone-700 whitespace-nowrap">{{ c.code }}</td>
+                <td class="px-6 py-4 font-bold text-amber-600 whitespace-nowrap">{{ c.face_value }} 分</td>
+                <td class="px-6 py-4">
+                  <span :class="{
+                    'badge bg-stone-100 text-stone-600': c.status === 'unused',
+                    'badge bg-amber-100 text-amber-700': c.status === 'pending',
+                    'badge bg-emerald-100 text-emerald-700': c.status === 'used',
+                    'badge bg-stone-200 text-stone-400': c.status === 'void',
+                  }">{{ c.status_text }}</span>
+                </td>
+                <td class="px-6 py-4 text-stone-600 whitespace-nowrap">
+                  <span v-if="c.status === 'pending'">{{ c.pending_student_name }}（待确认）</span>
+                  <span v-else>{{ c.bound_student_name || '通用卡' }}</span>
+                </td>
+                <td class="px-6 py-4 text-stone-600">{{ c.issuer_name || '—' }}</td>
+                <td class="px-6 py-4 text-xs text-stone-400 whitespace-nowrap">{{ c.created_at }}</td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <template v-if="c.status === 'unused'">
+                    <button type="button" class="text-rose-600 hover:text-rose-800 font-medium text-xs mr-3" @click="voidCard(c)">
+                      <i class="fa-solid fa-ban mr-1"></i>作废
+                    </button>
+                  </template>
+                  <template v-else-if="c.status === 'used'">
+                    <button type="button" class="text-sky-600 hover:text-sky-800 font-medium text-xs mr-3" @click="reactivateCard(c, !!c.bound_student_id)">
+                      <i class="fa-solid fa-rotate-left mr-1"></i>激活{{ c.bound_student_id ? '(解绑)' : '' }}
+                    </button>
+                  </template>
+                  <span v-else class="text-stone-300 text-xs">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="px-6 py-4 border-t border-stone-100">
+          <Pagination
+            :current-page="cardPage"
+            :total-pages="cardTotalPages"
+            :total="cardTotal"
+            :start-index="cards.length === 0 ? 0 : (cardPage - 1) * cardPageSize + 1"
+            :end-index="Math.min(cardPage * cardPageSize, cardTotal)"
+            @change="changeCardPage"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- ================= 对话框区域 ================= -->
 
     <!-- Modal 1: 添加用户 -->
@@ -2499,6 +2872,63 @@ onMounted(async () => {
         <button type="button" @click="updateProduct" class="btn-ruby px-5 py-2.5 rounded-2xl text-sm font-medium">保存</button>
       </template>
     </BaseModal>
+
+    <!-- Modal 13: 生成积分卡 -->
+    <BaseModal
+      :show="showCardGenDialog"
+      title="生成积分卡"
+      icon="fa-ticket"
+      icon-from="#fcd34d"
+      icon-to="#d97706"
+      @close="showCardGenDialog = false"
+    >
+      <div class="space-y-4">
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-stone-600">
+          <p class="font-medium text-amber-700 mb-1"><i class="fa-solid fa-circle-info mr-1"></i>说明</p>
+          <p>· 不绑定学生 = <b>通用卡</b>：任何学生提交后需老师确认到账</p>
+          <p>· 绑定学生 = <b>定向卡</b>：仅该学生可兑换，即时到账</p>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">生成数量（1-200）</label>
+          <input v-model.number="cardGenForm.count" type="number" min="1" max="200" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">面额（积分）</label>
+          <div class="flex gap-2 mb-2">
+            <button v-for="v in [10, 20, 50, 100]" :key="v" type="button"
+              class="px-4 py-2 rounded-xl text-sm font-bold transition"
+              :class="cardGenForm.face_value === v && !cardGenForm.customFace ? 'bg-amber-500 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'"
+              @click="cardGenForm.face_value = v; cardGenForm.customFace = ''">{{ v }}</button>
+          </div>
+          <input v-model="cardGenForm.customFace" type="number" min="1" max="100000" placeholder="自定义面额（可选）" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">绑定学生（留空 = 通用卡）</label>
+          <select v-model="cardGenForm.bound_student_id" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
+            <option value="">不绑定（通用卡）</option>
+            <option v-for="s in studentsList" :key="s.id" :value="s.id">{{ s.name }}（{{ s.className }}）</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">备注（可选）</label>
+          <input v-model="cardGenForm.remark" type="text" placeholder="如：期中奖励" class="field-input w-full px-4 py-3 rounded-2xl text-sm">
+        </div>
+      </div>
+      <template #footer>
+        <button type="button" @click="showCardGenDialog = false" class="btn-ghost px-5 py-2.5 rounded-2xl text-sm font-medium">取消</button>
+        <button type="button" :disabled="cardGenLoading" @click="generateCards" class="btn-ruby px-5 py-2.5 rounded-2xl text-sm font-medium">
+          <i class="fa-solid fa-wand-magic-sparkles mr-2"></i>{{ cardGenLoading ? '生成中…' : '生成并打印' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- Modal 14: 打印积分卡 -->
+    <CardPrintModal
+      :show="showCardPrint"
+      :cards="printCards"
+      :batch-no="printBatchNo"
+      @close="showCardPrint = false"
+    />
   </AppLayout>
 </template>
 

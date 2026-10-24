@@ -327,4 +327,35 @@ inline std::string normalize_redemption_code(const std::string& raw) {
     return digits.substr(0, 4) + "-" + digits.substr(4, 4);
 }
 
+// ====== 积分充值卡：16 位卡密（XXXX-XXXX-XXXX-XXXX，剔除 0/O/1/I） ======
+// 32^16 ≈ 1.2e24 组合 + code 唯一索引兜底，全局唯一性足够全校规模。
+inline std::string generate_card_code() {
+    static const char alphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    std::random_device rd;
+    std::string code;
+    code.reserve(19);
+    for (int i = 0; i < 16; i++) {
+        if (i > 0 && i % 4 == 0) code += '-';   // 每 4 位一组
+        code += alphabet[rd() % 32];
+    }
+    return code;
+}
+
+// 归一化用户输入的卡密：去空格/横线、转大写、0→O/1→I 映射、重插横线。
+// 长度（去分隔符后）不等于 16 → 返回空串表示非法。
+inline std::string normalize_card_code(const std::string& raw) {
+    std::string digits;
+    digits.reserve(16);
+    for (char c : raw) {
+        if (c == ' ' || c == '-' || c == '\t') continue;
+        if (c >= 'a' && c <= 'z') c = char(c - 32);
+        if (c == '0') { digits += 'O'; continue; }
+        if (c == '1') { digits += 'I'; continue; }
+        if ((c >= '2' && c <= '9') || (c >= 'A' && c <= 'Z')) digits += c;
+    }
+    if (digits.size() != 16) return "";
+    return digits.substr(0, 4) + "-" + digits.substr(4, 4) + "-" +
+           digits.substr(8, 4) + "-" + digits.substr(12, 4);
+}
+
 #endif

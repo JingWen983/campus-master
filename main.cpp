@@ -401,6 +401,37 @@ int main() {
                 FOREIGN KEY (student_id) REFERENCES users(id)
             );
 
+            -- 积分充值卡表（卡密）
+            -- status: unused 未使用 / pending 待确认(通用卡已被学生提交) / used 已使用 / void 已作废
+            -- bound_student_id 非空 = 定向卡（仅绑定学生可兑，即时到账）；
+            -- 为空 = 通用卡（学生提交后进入 pending，由签发教师/管理员确认到账）。
+            -- used → unused 的「重新激活」支持实物卡回收复用（可选解除绑定）。
+            CREATE TABLE IF NOT EXISTS point_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT UNIQUE NOT NULL,
+                face_value INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'unused',
+                batch_no TEXT,
+                remark TEXT,
+                issuer_id TEXT NOT NULL,
+                bound_student_id TEXT,
+                pending_student_id TEXT,
+                used_by TEXT,
+                used_at DATETIME,
+                confirmed_by TEXT,
+                reactivated_by TEXT,
+                reactivated_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (issuer_id) REFERENCES users(id),
+                FOREIGN KEY (bound_student_id) REFERENCES users(id),
+                FOREIGN KEY (pending_student_id) REFERENCES users(id),
+                FOREIGN KEY (used_by) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_point_cards_status ON point_cards(status);
+            CREATE INDEX IF NOT EXISTS idx_point_cards_batch_no ON point_cards(batch_no);
+            CREATE INDEX IF NOT EXISTS idx_point_cards_bound_student ON point_cards(bound_student_id);
+
             CREATE INDEX IF NOT EXISTS idx_parent_messages_student_id ON parent_messages(student_id);
 
             -- 会话表（Cookie 认证）
@@ -521,6 +552,7 @@ int main() {
     register_teacher_routes(svr);
     register_student_routes(svr);
     register_parent_routes(svr);
+    register_card_routes(svr);
 
     // 7. 初始化索引以提高查询效率
     init_indexes();

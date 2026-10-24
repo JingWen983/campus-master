@@ -6,14 +6,14 @@
  * 单 SFC + v-show 切换，保留原架构。API 走统一 api 封装，alert/confirm 替换为 toast/confirmDialog，
  * ECharts 雷达图用 BaseChart 组件 + computed option。
  */
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { api } from '../../lib/api'
 import { checkAuth, logout } from '../../lib/auth'
 import { formatDateTime } from '../../lib/format'
 import { THEMES } from '../../lib/theme'
 import { STUDENT_NAV } from '../../lib/navConfig'
-import { makeQrDataUrl } from '../../lib/qrcode'
+import { makeQrDataUrl, scanVideoFrame } from '../../lib/qrcode'
 import { toast } from '../../composables/useToast'
 import { confirmDialog } from '../../composables/useConfirm'
 import AppLayout from '../../components/AppLayout.vue'
@@ -109,6 +109,115 @@ const radarChartRef = ref<InstanceType<typeof BaseChart>>()
 const lastRedeemCode = ref('')
 const lastRedeemItem = ref('')
 const lastRedeemQr = ref('')
+
+// ===== 积分卡（卡密充值） =====
+interface MyCardRecord {
+  id: number | string
+  code: string
+  face_value: number
+  status: string
+  status_text: string
+  time: string
+}
+
+const cardCodeInput = ref('')
+const cardRedeemLoading = ref(false)
+const myCardRecords = ref<MyCardRecord[]>([])
+
+// 摄像头扫码（复用后勤端同款 jsQR 逐帧识别）
+const cardScanning = ref(false)
+const cardScanError = ref('')
+const cardVideoEl = ref<HTMLVideoElement | null>(null)
+const cardCanvasEl = ref<HTMLCanvasElement | null>(null)
+let cardMediaStream: MediaStream | null = null
+let cardScanTimer: number | undefined
+let cardLastScanned = ''
+let cardLastScannedAt = 0
+
+/** 输入时自动格式化：去非法字符 → 大写 → 每 4 位补横线 */
+function formatCardInput() {
+  const raw = cardCodeInput.value.toUpperCase().replace(/[^0-9A-Z]/g, '')
+  const parts: string[] = []
+  for (let i = 0; i < raw.length && i < 16; i += 4) {
+    parts.push(raw.slice(i, i + 4))
+  }
+  cardCodeInput.value = parts.join('-')
+}
+
+async function loadMyCardRecords() {
+  try {
+    const res = await api.get<MyCardRecord[]>('/api/student/point-cards')
+    if (res.code === 200 && res.data) myCardRecords.value = res.data
+  } catch { /* api 层已提示 */ }
+}
+
+async function redeemCard() {
+  const code = cardCodeInput.value.trim()
+  if (code.replace(/-/g, '').length !== 16) {
+    toast.warning('请输入完整的 16 位卡密')
+    return
+  }
+  cardRedeemLoading.value = true
+  try {
+    const res = await api.post<{ result: string; face_value: number; points?: number }>(
+      '/api/student/point-cards/redeem', { code })
+    if (res.code === 200 && res.data) {
+      if (res.data.result === 'credited') {
+        toast.success(`充值成功！+${res.data.face_value} 积分`)
+        if (res.data.points != null) userInfo.value.points = res.data.points
+      } else {
+        toast.info('已提交，等待老师确认后到账')
+      }
+      cardCodeInput.value = ''
+      await Promise.all([loadMyCardRecords(), fetchHistory()])
+    } else {
+      toast.error(res.msg || '兑换失败')
+    }
+  } catch { /* api 层已提示 */ } finally {
+    cardRedeemLoading.value = false
+  }
+}
+
+async function startCardScan() {
+  cardScanError.value = ''
+  try {
+    cardMediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+    })
+    await nextTick()
+    if (cardVideoEl.value) {
+      cardVideoEl.value.srcObject = cardMediaStream
+      await cardVideoEl.value.play()
+    }
+    cardScanning.value = true
+    cardScanTimer = window.setInterval(() => {
+      if (!cardVideoEl.value || !cardCanvasEl.value) return
+      const text = scanVideoFrame(cardVideoEl.value, cardCanvasEl.value)
+      if (!text) return
+      const now = Date.now()
+      if (text === cardLastScanned && now - cardLastScannedAt < 1500) return
+      cardLastScanned = text
+      cardLastScannedAt = now
+      // 识别到卡号：填入输入框并自动提交
+      stopCardScan()
+      cardCodeInput.value = text
+      formatCardInput()
+      redeemCard()
+    }, 220)
+  } catch {
+    cardScanError.value = '无法访问摄像头，请检查浏览器权限（需 HTTPS 或 localhost），或改用手动输入'
+    cardScanning.value = false
+  }
+}
+
+function stopCardScan() {
+  if (cardScanTimer) { clearInterval(cardScanTimer); cardScanTimer = undefined }
+  if (cardMediaStream) {
+    cardMediaStream.getTracks().forEach(t => t.stop())
+    cardMediaStream = null
+  }
+  cardScanning.value = false
+}
 
 // ===== Computed: 雷达图 option =====
 const radarOption = computed<EChartsOption>(() => {
@@ -290,6 +399,8 @@ function switchTab(tab: string) {
     fetchHistory()
   } else if (tab === 'mall') {
     fetchMallItems()
+  } else if (tab === 'cards') {
+    loadMyCardRecords()
   } else if (tab === 'evaluation') {
     fetchEvaluation()
   } else if (tab === 'redemptions') {
@@ -316,7 +427,12 @@ onMounted(async () => {
     fetchLeaderboard(),
     fetchEvaluation(),
     fetchRedemptions(),
+    loadMyCardRecords(),
   ])
+})
+
+onUnmounted(() => {
+  stopCardScan()
 })
 </script>
 
@@ -431,6 +547,97 @@ onMounted(async () => {
                 <i class="fa-solid fa-coins text-xs"></i>{{ item.price }}
               </span>
               <button class="btn-emerald text-xs px-4 py-2 rounded-full font-medium" @click="redeem(item)">兑换</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Tab 2.5: 积分卡充值 ====== -->
+    <div v-show="currentTab === 'cards'">
+      <div class="mb-7 anim-fade-up">
+        <h2 class="font-display text-3xl md:text-4xl font-bold text-stone-800" style="letter-spacing: -0.03em;">积分卡充值</h2>
+        <p class="text-sm text-stone-500 mt-1">输入卡密或扫描卡片二维码，充值你的能量积分</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        <!-- 充值区 -->
+        <div class="lg:col-span-3 card-base p-6 anim-fade-up">
+          <h3 class="font-bold text-stone-800 mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-ticket text-amber-500"></i>卡密充值
+          </h3>
+          <input
+            v-model="cardCodeInput"
+            type="text"
+            placeholder="XXXX-XXXX-XXXX-XXXX"
+            maxlength="19"
+            class="w-full px-5 py-4 text-center font-mono text-xl tracking-[0.15em] uppercase rounded-2xl border-2 border-stone-200 focus:border-amber-400 focus:outline-none bg-amber-50/50"
+            @input="formatCardInput"
+            @keyup.enter="redeemCard"
+          >
+          <p class="text-xs text-stone-400 mt-2 text-center">16 位卡密，见实物卡或老师发放的图片</p>
+
+          <div class="flex gap-3 mt-5">
+            <button
+              class="btn-emerald flex-1 py-3.5 rounded-2xl font-bold"
+              :disabled="cardRedeemLoading"
+              @click="redeemCard"
+            >
+              <i class="fa-solid fa-bolt mr-2"></i>{{ cardRedeemLoading ? '提交中…' : '立即充值' }}
+            </button>
+            <button
+              v-if="!cardScanning"
+              class="px-5 py-3.5 rounded-2xl text-sm font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
+              @click="startCardScan"
+            >
+              <i class="fa-solid fa-qrcode mr-2"></i>扫码
+            </button>
+            <button
+              v-else
+              class="px-5 py-3.5 rounded-2xl text-sm font-medium bg-rose-100 text-rose-600 hover:bg-rose-200"
+              @click="stopCardScan"
+            >
+              <i class="fa-solid fa-stop mr-2"></i>停止
+            </button>
+          </div>
+
+          <!-- 扫码取景 -->
+          <div v-if="cardScanning" class="mt-4 relative rounded-2xl overflow-hidden bg-stone-900 aspect-video">
+            <video ref="cardVideoEl" class="w-full h-full object-cover" muted playsinline></video>
+            <canvas ref="cardCanvasEl" class="hidden"></canvas>
+            <div class="absolute inset-[22%] border-2 border-emerald-300/90 rounded-xl pointer-events-none" style="box-shadow: 0 0 0 9999px rgba(5,10,20,0.35);"></div>
+          </div>
+          <p v-if="cardScanError" class="text-xs text-rose-500 mt-2">{{ cardScanError }}</p>
+
+          <div class="mt-5 p-4 rounded-2xl bg-stone-50 text-xs text-stone-500 leading-relaxed">
+            <p><i class="fa-solid fa-circle-info mr-1.5 text-amber-500"></i><b>定向卡</b>（卡面印有你的名字）充值立即到账</p>
+            <p class="mt-1"><i class="fa-solid fa-circle-info mr-1.5 text-amber-500"></i><b>通用卡</b>提交后需老师确认，到账会有记录</p>
+          </div>
+        </div>
+
+        <!-- 记录区 -->
+        <div class="lg:col-span-2 card-base p-6 anim-fade-up delay-2">
+          <h3 class="font-bold text-stone-800 mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-clock-rotate-left text-emerald-600"></i>我的充值记录
+          </h3>
+          <EmptyState v-if="myCardRecords.length === 0" icon="fa-ticket" text="还没有充值记录" variant="inline" />
+          <div v-else class="space-y-3 max-h-[420px] overflow-y-auto">
+            <div v-for="r in myCardRecords" :key="r.id" class="p-3.5 rounded-2xl bg-stone-50 flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                :class="r.status === 'used' ? 'bg-emerald-100 text-emerald-600' : r.status === 'pending' ? 'bg-amber-100 text-amber-600' : 'bg-stone-200 text-stone-500'">
+                <i class="fa-solid" :class="r.status === 'used' ? 'fa-check' : r.status === 'pending' ? 'fa-hourglass-half' : 'fa-ticket'"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-center gap-2">
+                  <span class="font-bold text-stone-800">+{{ r.face_value }} 积分</span>
+                  <span class="text-xs font-bold shrink-0"
+                    :class="r.status === 'used' ? 'text-emerald-600' : r.status === 'pending' ? 'text-amber-600' : 'text-stone-500'">
+                    {{ r.status_text }}
+                  </span>
+                </div>
+                <p class="text-[11px] text-stone-400 font-mono mt-0.5">{{ r.code }}</p>
+                <p class="text-[11px] text-stone-400">{{ r.time }}</p>
+              </div>
             </div>
           </div>
         </div>

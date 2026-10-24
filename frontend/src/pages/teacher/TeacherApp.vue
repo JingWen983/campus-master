@@ -8,7 +8,7 @@
  * 3 个 BaseChart（统计 tab）：班级积分柱状图 / 积分趋势折线图 / 评价分布饼图
  * API 走统一 api 封装，alert/confirm → toast/confirmDialog
  */
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { api } from '../../lib/api'
 import { checkAuth, logout, type UserInfo } from '../../lib/auth'
@@ -21,6 +21,7 @@ import AppLayout from '../../components/AppLayout.vue'
 import BaseChart from '../../components/BaseChart.vue'
 import BaseModal from '../../components/BaseModal.vue'
 import EmptyState from '../../components/EmptyState.vue'
+import CardPrintModal from '../../components/CardPrintModal.vue'
 import Pagination from '../../components/Pagination.vue'
 import StatCard from '../../components/StatCard.vue'
 
@@ -208,7 +209,9 @@ const navItems = computed<NavItem[]>(() =>
   TEACHER_NAV.map(item =>
     item.key === 'parent-messages'
       ? { ...item, badge: unreadCount.value }
-      : item
+      : item.key === 'point-cards'
+        ? { ...item, badge: pendingCards.value.length }
+        : item
   )
 )
 
@@ -418,6 +421,183 @@ async function loadRedemptions() {
     }
   } catch (e) {
     console.error('Load redemptions error:', e)
+  }
+}
+
+// ===== Point cards（积分充值卡） =====
+interface TeacherPointCard {
+  id: number | string
+  code: string
+  face_value: number
+  status: string
+  status_text: string
+  batch_no: string
+  remark?: string
+  issuer_name?: string
+  bound_student_id?: string
+  bound_student_name?: string
+  pending_student_name?: string
+  created_at: string
+}
+
+const myCards = ref<TeacherPointCard[]>([])
+const myCardTotal = ref(0)
+const myCardPage = ref(1)
+const myCardPageSize = 10
+const myCardStatusFilter = ref('')
+const pendingCards = ref<TeacherPointCard[]>([])
+const showCardGenDialog = ref(false)
+const cardGenForm = ref({ count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' })
+const cardGenLoading = ref(false)
+const showCardPrint = ref(false)
+const printCards = ref<{ code: string; face_value: number; bound_student_name?: string }[]>([])
+const printBatchNo = ref('')
+let cardPollTimer: number | undefined
+
+const myCardTotalPages = computed(() => Math.ceil(myCardTotal.value / myCardPageSize) || 1)
+
+async function loadMyCards() {
+  try {
+    const params = new URLSearchParams({ page: String(myCardPage.value), page_size: String(myCardPageSize) })
+    if (myCardStatusFilter.value) params.set('status', myCardStatusFilter.value)
+    const res = await api.get<{ items: TeacherPointCard[]; total: number }>(`/api/point-cards?${params}`)
+    if (res.code === 200 && res.data) {
+      myCards.value = res.data.items
+      myCardTotal.value = res.data.total
+    }
+  } catch (e) {
+    console.error('Load my cards error:', e)
+  }
+}
+
+async function loadPendingCards() {
+  try {
+    const res = await api.get<TeacherPointCard[]>('/api/point-cards/pending')
+    if (res.code === 200) {
+      pendingCards.value = res.data || []
+    }
+  } catch (e) {
+    console.error('Load pending cards error:', e)
+  }
+}
+
+function onMyCardFilterChange() {
+  myCardPage.value = 1
+  loadMyCards()
+}
+
+function changeMyCardPage(page: number) {
+  myCardPage.value = page
+  loadMyCards()
+}
+
+function openCardGenDialog() {
+  cardGenForm.value = { count: 10, face_value: 10, customFace: '', remark: '', bound_student_id: '' }
+  showCardGenDialog.value = true
+}
+
+async function generateCards() {
+  const custom = parseInt(cardGenForm.value.customFace, 10)
+  const face = cardGenForm.value.customFace && custom >= 1 && custom <= 100000
+    ? custom
+    : cardGenForm.value.face_value
+  if (!(cardGenForm.value.count >= 1 && cardGenForm.value.count <= 200)) {
+    toast.warning('生成数量须在 1-200 之间')
+    return
+  }
+  if (!(face >= 1 && face <= 100000)) {
+    toast.warning('面额须在 1-100000 之间')
+    return
+  }
+  cardGenLoading.value = true
+  try {
+    const res = await api.post<{ batch_no: string; count: number; cards: TeacherPointCard[] }>(
+      '/api/point-cards/generate',
+      {
+        count: cardGenForm.value.count,
+        face_value: face,
+        remark: cardGenForm.value.remark || undefined,
+        bound_student_id: cardGenForm.value.bound_student_id || undefined,
+      }
+    )
+    if (res.code === 200 && res.data) {
+      toast.success(`成功生成 ${res.data.count} 张积分卡（批次 ${res.data.batch_no}）`)
+      showCardGenDialog.value = false
+      printCards.value = res.data.cards.map(c => ({
+        code: c.code, face_value: c.face_value, bound_student_name: c.bound_student_name,
+      }))
+      printBatchNo.value = res.data.batch_no
+      showCardPrint.value = true
+      await loadMyCards()
+    } else {
+      toast.error(res.msg || '生成失败')
+    }
+  } catch { /* api 层已提示 */ } finally {
+    cardGenLoading.value = false
+  }
+}
+
+async function confirmCard(card: TeacherPointCard) {
+  const ok = await confirmDialog({
+    message: `确认 ${card.pending_student_name} 兑换 ${card.face_value} 积分（卡 ${card.code}）？`,
+    variant: 'primary',
+    confirmText: '确认到账',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/confirm', { id: card.id })
+  if (res.code === 200) {
+    toast.success(res.msg || '已确认到账')
+    await Promise.all([loadPendingCards(), loadMyCards()])
+  } else {
+    toast.error(res.msg || '确认失败')
+  }
+}
+
+async function rejectCard(card: TeacherPointCard) {
+  const ok = await confirmDialog({
+    message: `驳回 ${card.pending_student_name} 对卡 ${card.code} 的兑换请求？卡将恢复为未使用`,
+    variant: 'danger',
+    confirmText: '驳回',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/reject', { id: card.id })
+  if (res.code === 200) {
+    toast.success('已驳回')
+    await Promise.all([loadPendingCards(), loadMyCards()])
+  } else {
+    toast.error(res.msg || '驳回失败')
+  }
+}
+
+async function voidCard(card: TeacherPointCard) {
+  const ok = await confirmDialog({
+    message: `确定作废卡 ${card.code}（${card.face_value} 分）吗？`,
+    variant: 'danger',
+    confirmText: '作废',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/void', { id: card.id })
+  if (res.code === 200) {
+    toast.success('已作废')
+    loadMyCards()
+  } else {
+    toast.error(res.msg || '作废失败')
+  }
+}
+
+async function reactivateCard(card: TeacherPointCard, unbind: boolean) {
+  const ok = await confirmDialog({
+    message: unbind ? `重新激活 ${card.code} 并解除绑定？` : `重新激活 ${card.code}（保留绑定）？`,
+    variant: 'primary',
+    confirmText: '激活',
+  })
+  if (!ok) return
+  const res = await api.post('/api/point-cards/reactivate', { id: card.id, unbind })
+  if (res.code === 200) {
+    toast.success(res.msg || '已重新激活')
+    loadMyCards()
+  } else {
+    toast.error(res.msg || '激活失败')
   }
 }
 
@@ -718,6 +898,9 @@ function switchTab(tab: string) {
     loadParentMessages()
   } else if (tab === 'redemptions') {
     loadRedemptions()
+  } else if (tab === 'point-cards') {
+    loadMyCards()
+    loadPendingCards()
   }
 }
 
@@ -733,6 +916,13 @@ onMounted(async () => {
   await loadDashboard()
   await loadRecentActivities()
   await loadParentMessages()
+  // 积分卡待确认数轮询（15 秒；登录后即开始，让侧边栏徽章尽早可见）
+  loadPendingCards()
+  cardPollTimer = window.setInterval(loadPendingCards, 15000)
+})
+
+onUnmounted(() => {
+  if (cardPollTimer) clearInterval(cardPollTimer)
 })
 </script>
 
@@ -1253,6 +1443,125 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- ====== Tab 8: 积分卡 ====== -->
+    <div v-show="currentTab === 'point-cards'">
+      <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 fade-up">
+        <div>
+          <p class="text-sm text-stone-500 mb-1">积分充值卡的生成与确认</p>
+          <h2 class="font-display text-3xl md:text-4xl font-bold text-stone-800 tracking-tight">积分卡</h2>
+        </div>
+        <button @click="openCardGenDialog" class="btn-teal px-5 py-2.5 rounded-xl text-sm font-medium flex items-center text-white">
+          <i class="fa-solid fa-plus mr-2"></i> 生成积分卡
+        </button>
+      </div>
+
+      <!-- 待确认充值 -->
+      <div class="glass rounded-3xl p-6 mb-6 fade-up delay-1">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-display text-xl font-bold text-stone-800 flex items-center gap-2">
+            <i class="fa-solid fa-hourglass-half text-amber-500"></i> 待确认充值
+            <span v-if="pendingCards.length" class="bg-amber-100 text-amber-700 px-2.5 py-0.5 rounded-full text-xs font-bold">{{ pendingCards.length }}</span>
+          </h3>
+          <span class="text-xs text-stone-400 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>每 15 秒自动刷新
+          </span>
+        </div>
+        <EmptyState v-if="pendingCards.length === 0" icon="fa-check-double" text="没有待确认的充值" variant="inline" />
+        <div v-else class="space-y-3">
+          <div v-for="c in pendingCards" :key="c.id"
+            class="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4 rounded-2xl bg-amber-50/70 border border-amber-200/70">
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span class="font-bold text-stone-800">{{ c.pending_student_name }}</span>
+                <span class="font-mono text-xs text-stone-500">{{ c.code }}</span>
+                <span class="font-bold text-amber-600">{{ c.face_value }} 分</span>
+                <span v-if="c.remark" class="text-xs text-stone-400">{{ c.remark }}</span>
+              </div>
+              <p class="text-xs text-stone-400 mt-1">签发人：{{ c.issuer_name || '—' }}</p>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <button @click="confirmCard(c)" class="btn-teal px-5 py-2 rounded-xl text-xs font-bold text-white">
+                <i class="fa-solid fa-check mr-1"></i>确认到账
+              </button>
+              <button @click="rejectCard(c)" class="px-4 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200">
+                驳回
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 我签发的卡 -->
+      <div class="glass rounded-3xl overflow-hidden fade-up delay-2">
+        <div class="p-5 border-b border-stone-200/50 flex flex-wrap items-center gap-3">
+          <h3 class="font-display text-lg font-bold text-stone-800 mr-auto">我签发的卡</h3>
+          <select v-model="myCardStatusFilter" class="input-soft px-3 py-2 rounded-xl text-sm w-28" @change="onMyCardFilterChange">
+            <option value="">全部</option>
+            <option value="unused">未使用</option>
+            <option value="pending">待确认</option>
+            <option value="used">已使用</option>
+            <option value="void">已作废</option>
+          </select>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-stone-200/60" style="background: linear-gradient(90deg, rgba(20, 184, 166, 0.05), rgba(245, 158, 11, 0.03));">
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">卡号</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">面额</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">状态</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">绑定/兑换</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">生成时间</th>
+                <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-stone-200/50">
+              <tr v-if="myCards.length === 0">
+                <td colspan="6" class="px-5 py-10 text-center text-stone-400 text-sm">暂无积分卡</td>
+              </tr>
+              <tr v-for="c in myCards" :key="c.id" class="table-row">
+                <td class="px-5 py-3.5 font-mono text-xs font-bold text-stone-700 whitespace-nowrap">{{ c.code }}</td>
+                <td class="px-5 py-3.5 font-bold text-amber-600 whitespace-nowrap text-sm">{{ c.face_value }} 分</td>
+                <td class="px-5 py-3.5">
+                  <span :class="{
+                    'badge bg-stone-100 text-stone-600': c.status === 'unused',
+                    'badge bg-amber-100 text-amber-700': c.status === 'pending',
+                    'badge bg-emerald-100 text-emerald-700': c.status === 'used',
+                    'badge bg-stone-200 text-stone-400': c.status === 'void',
+                  }">{{ c.status_text }}</span>
+                </td>
+                <td class="px-5 py-3.5 text-sm text-stone-600 whitespace-nowrap">
+                  <span v-if="c.status === 'pending'">{{ c.pending_student_name }}（待确认）</span>
+                  <span v-else>{{ c.bound_student_name || '通用卡' }}</span>
+                </td>
+                <td class="px-5 py-3.5 text-xs text-stone-400 whitespace-nowrap">{{ c.created_at }}</td>
+                <td class="px-5 py-3.5 whitespace-nowrap">
+                  <template v-if="c.status === 'unused'">
+                    <button @click="voidCard(c)" class="text-rose-600 hover:text-rose-800 text-xs font-medium mr-3">
+                      <i class="fa-solid fa-ban mr-1"></i>作废
+                    </button>
+                  </template>
+                  <template v-else-if="c.status === 'used'">
+                    <button @click="reactivateCard(c, !!c.bound_student_id)" class="text-sky-600 hover:text-sky-800 text-xs font-medium mr-3">
+                      <i class="fa-solid fa-rotate-left mr-1"></i>激活{{ c.bound_student_id ? '(解绑)' : '' }}
+                    </button>
+                  </template>
+                  <span v-else class="text-stone-300 text-xs">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="myCardTotalPages > 1" class="px-5 py-3 border-t border-stone-200/50 flex items-center justify-between text-sm text-stone-500">
+          <span>第 {{ myCardPage }} / {{ myCardTotalPages }} 页 · 共 {{ myCardTotal }} 张</span>
+          <div class="flex gap-2">
+            <button :disabled="myCardPage <= 1" @click="changeMyCardPage(myCardPage - 1)" class="px-3 py-1.5 rounded-lg bg-stone-100 disabled:opacity-40 text-xs">上一页</button>
+            <button :disabled="myCardPage >= myCardTotalPages" @click="changeMyCardPage(myCardPage + 1)" class="px-3 py-1.5 rounded-lg bg-stone-100 disabled:opacity-40 text-xs">下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ====== Modal 1: 添加学生 ====== -->
     <BaseModal
       :show="showAddStudentDialog"
@@ -1425,6 +1734,64 @@ onMounted(async () => {
         <button @click="importStudentCsv" class="btn-teal px-5 py-2 rounded-xl text-sm font-medium">导入</button>
       </template>
     </BaseModal>
+
+    <!-- ====== Modal 6: 生成积分卡 ====== -->
+    <BaseModal
+      :show="showCardGenDialog"
+      title="生成积分卡"
+      icon="fa-ticket"
+      icon-from="#fcd34d"
+      icon-to="#d97706"
+      @close="showCardGenDialog = false"
+    >
+      <div class="space-y-4">
+        <div class="rounded-2xl p-3 text-sm" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(20, 184, 166, 0.05)); border: 1px solid rgba(245, 158, 11, 0.2);">
+          <p class="font-semibold mb-1 flex items-center text-amber-700"><i class="fa-solid fa-circle-info mr-1.5"></i>说明</p>
+          <p class="text-stone-700">· 不绑定学生 = <b>通用卡</b>：学生提交后由你确认到账</p>
+          <p class="text-stone-700">· 绑定学生 = <b>定向卡</b>：仅该学生可兑换，即时到账</p>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-stone-600 mb-1.5">生成数量（1-200）</label>
+          <input v-model.number="cardGenForm.count" type="number" min="1" max="200" class="input-soft w-full px-4 py-2.5 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-stone-600 mb-1.5">面额（积分）</label>
+          <div class="flex gap-2 mb-2">
+            <button v-for="v in [10, 20, 50, 100]" :key="v" type="button"
+              class="px-4 py-2 rounded-xl text-sm font-bold transition"
+              :class="cardGenForm.face_value === v && !cardGenForm.customFace ? 'text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'"
+              :style="cardGenForm.face_value === v && !cardGenForm.customFace ? 'background: linear-gradient(135deg, #f59e0b, #d97706)' : ''"
+              @click="cardGenForm.face_value = v; cardGenForm.customFace = ''">{{ v }}</button>
+          </div>
+          <input v-model="cardGenForm.customFace" type="number" min="1" max="100000" placeholder="自定义面额（可选）" class="input-soft w-full px-4 py-2.5 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-stone-600 mb-1.5">绑定学生（仅限我任课班级；留空 = 通用卡）</label>
+          <select v-model="cardGenForm.bound_student_id" class="input-soft w-full px-4 py-2.5 text-sm">
+            <option value="">不绑定（通用卡）</option>
+            <option v-for="s in students" :key="s.id" :value="s.id">{{ s.name }}（{{ s.className }}）</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-stone-600 mb-1.5">备注（可选）</label>
+          <input v-model="cardGenForm.remark" type="text" placeholder="如：课堂表现奖励" class="input-soft w-full px-4 py-2.5 text-sm">
+        </div>
+      </div>
+      <template #footer>
+        <button @click="showCardGenDialog = false" class="btn-ghost px-5 py-2 rounded-xl text-sm font-medium">取消</button>
+        <button :disabled="cardGenLoading" @click="generateCards" class="btn-teal px-5 py-2 rounded-xl text-sm font-medium">
+          <i class="fa-solid fa-wand-magic-sparkles mr-2"></i>{{ cardGenLoading ? '生成中…' : '生成并打印' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- ====== Modal 7: 打印积分卡 ====== -->
+    <CardPrintModal
+      :show="showCardPrint"
+      :cards="printCards"
+      :batch-no="printBatchNo"
+      @close="showCardPrint = false"
+    />
   </AppLayout>
 </template>
 
